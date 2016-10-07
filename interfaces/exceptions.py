@@ -1,0 +1,3 @@
+
+class PyVnfmSdkException(Exception):
+    pass
