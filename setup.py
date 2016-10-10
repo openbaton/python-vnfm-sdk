@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 # Utility function to read the README file.
@@ -12,17 +12,21 @@ def read(fname):
 
 setup(
     name="python-vfnm-sdk",
-    version="0.0.2",
+    version="2.2.0-beta4",
     author="Open Baton",
-    author_email="info@openbaton.org",
-    description=("The Python version of the vnfm-sdk"),
+    author_email="dev@openbaton.org",
+    description="The Python version of the Open Baton vnfm-sdk",
     license="Apache 2",
     keywords="python vnfm nfvo open baton openbaton sdk",
     url="http://openbaton.github.io/",
-    packages=[
-        'utils',
-        'etc',
-        'interfaces'
-    ],
-    long_description=read('README.md')
+    packages=find_packages(),
+    install_requires=['pika'],
+    long_description=read('README.rst'),
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        'Topic :: Software Development :: Build Tools',
+        "Topic :: Utilities",
+        "License :: OSI Approved :: Apache Software License",
+    ]
 )

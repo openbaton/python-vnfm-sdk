@@ -17,10 +17,11 @@ import json
 import logging
 import threading
 
+from interfaces.exceptions import PyVnfmSdkException
+
 import abc
 import os
 import pika
-from interfaces.exceptions import PyVnfmSdkException
 from utils.Utilities import get_map
 
 __author__ = 'lto'
