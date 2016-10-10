@@ -254,3 +254,7 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# PyPip
+
+.pypirc

@@ -51,11 +51,19 @@ def check_endpoint_type(endpoint_type):
         raise PyVnfmSdkException("The endpoint type must be in %s" % ENDPOINT_TYPES)
 
 
+def get_nfv_message(action, vnfr):
+    if action == "INSTANTIATE":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr}
+    if action == "MODIFY":
+        return ""
+    pass
+
+
 class AbstractVnfm(object):
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def instantiate(self, virtualNetworkFunctionRecord, scripts, vimInstances):
+    def instantiate(self, vnf_record, scripts, vim_instances):
         pass
 
     @abc.abstractmethod
@@ -64,7 +72,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def scale(self, scaleOut, virtualNetworkFunctionRecord, component, scripts, dependency):
+    def scale(self, scale_out, vnf_record, vnf_component, scripts, dependency):
         """This operation allows scaling (out / in, up / down) a VNF instance."""
         pass
 
@@ -74,7 +82,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def heal(self, virtualNetworkFunctionRecord, vnfcInstanceComponent, cause):
+    def heal(self, vnf_record, vnf_instance, cause):
         pass
 
     @abc.abstractmethod
@@ -83,7 +91,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def modify(self, virtualNetworkFunctionRecord, dependency):
+    def modify(self, vnf_record, dependency):
         """This  operation allows making structural changes (e.g.configuration, topology, behavior, redundancy model) to a VNF instance."""
         pass
 
@@ -93,7 +101,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def terminate(self, virtualNetworkFunctionRecord):
+    def terminate(self, vnf_record):
         """This operation allows terminating gracefully or forcefully a previously created VNF instance."""
         pass
 
@@ -102,26 +110,169 @@ class AbstractVnfm(object):
         """This operation allows providing notifications on state changes of a VNF instance, related to the VNF Lifecycle."""
         pass
 
-    def on_message(self, **kwargs):
-        """This message is in charge of dispaching the message to the right method"""
-        return ""
+    @abc.abstractmethod
+    def start(self, vnf_record):
+        """
+
+        :param vnf_record:
+        :return:
+        """
+        pass
+
+    @abc.abstractmethod
+    def stop(self, vnf_record):
+        """
+
+            :param vnf_record:
+            :return:
+            """
+        pass
+
+    @abc.abstractmethod
+    def startVNFCInstance(self, vnf_record, vnfc_instance):
+        """
+
+        :param vnf_record:
+        :param vnfc_instance:
+        :return:
+        """
+        pass
+
+    @abc.abstractmethod
+    def stopVNFCInstance(self, vnf_record, vnfc_instance):
+        """
+
+        :param vnf_record:
+        :param vnfc_instance:
+        :return:
+        """
+        pass
+
+    @abc.abstractmethod
+    def handleError(self, vnf_record):
+        """
+
+        :param vnf_record
+        :return:
+        """
+        pass
+
+    # TODO to be checked again!
+    @staticmethod
+    def create_vnf_record(vnfd, flavor_key, vlrs, extension):
+        vnfr = dict(lifecycle_event_history=[], parent_ns_id=extension.get("nsr-id"), name=vnfd.get("name"),
+                    type=vnfd.get("type"), requires=vnfd.get("requires"), provides={}, endpoint=vnfd.get("endpoint"),
+                    packageId=vnfd.get("vnfPackageLocation"), monitoring_parameter=vnfd.get("monitoring_parameter"),
+                    auto_scale_policy=vnfd.get("auto_scale_policy"), cyclicDependency=vnfd.get("cyclicDependency"),
+                    configuration=vnfd.get("configuration"), vdu=vnfd.get("vdu"), version=vnfd.get("version"),
+                    connection_point=vnfd.get("connection_point"), deployment_flavour_key=flavor_key,
+                    vnf_address=vnfd.get("vnf_address"), status="NULL", descriptor_reference=vnfd.get("id"),
+                    lifecycle_event=vnfd.get("lifecycle_event"), virtual_link=vnfd.get("virtual_link"))
+
+        # for (VirtualDeploymentUnit virtualDeploymentUnit: vnfd.getVdu()) {
+        # for (VimInstance vi: vimInstances.get(virtualDeploymentUnit.getId())) {
+        # for (String name: virtualDeploymentUnit.getVimInstanceName()) {
+        # if (name.equals(vi.getName()))
+        # {
+        # if (!existsDeploymentFlavor(
+        #     virtualNetworkFunctionRecord.getDeployment_flavour_key(), vi)) {
+        #     throw
+        # new
+        # BadFormatException(
+        #     "no key "
+        #     + virtualNetworkFunctionRecord.getDeployment_flavour_key()
+        #     + " found in vim instance: "
+        #     + vi);
+        # }
+        # }
+        # }
+        # }
+        # }
+
+        for vlr in vlrs:
+            for internal_vlr in vnfr["virtual_link"]:
+                if vlr.get("name") == internal_vlr.get("name"):
+                    internal_vlr["exId"] = vlr.get("extId")
+
+        return vnfr
+
+    def on_message(self, body):
+        """
+        This message is in charge of dispaching the message to the right method
+        :param body:
+        :return:
+        """
+        msg = json.loads(body)
+
+        action = msg.get("action")
+        log.debug("Action is %s" % action)
+        vnfr = {}
+        if action == "INSTANTIATE":
+            extension = msg.get("extension")
+            keys = msg.get("keys")
+            vim_instances = msg.get("vimInstances")
+            vnfd = msg.get("vnfd")
+            vnf_package = msg.get("vnfPackage")
+            vlrs = msg.get("vlrs")
+            vnfdf = msg.get("vnfdf")
+            if vnf_package.get("scriptsLink") is None:
+                scripts = vnf_package.get("scripts")
+            else:
+                scripts = vnf_package.get("scriptsLink")
+            vnfr = self.instantiate(
+                vnf_record=AbstractVnfm.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension),
+                scripts=scripts, vim_instances=vim_instances)
+
+        if action == "MODIFY":
+            vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
+        if action == "START":
+            vnfr = self.start(vnf_record=msg.get("virtualNetworkFunctionRecord"))
+
+        if len(vnfr) == 0:
+            raise PyVnfmSdkException("Unknown action!")
+        nfv_message = get_nfv_message(action, vnfr);
+        log.debug("answer is: %s" % nfv_message)
+        return nfv_message
 
     def on_request(self, ch, method, props, body):
-        n = body
+        log.info("Waiting for actions")
         response = self.on_message(body)
-        ch.basic_publish(exchange='',
-                         routing_key=props.reply_to,
-                         properties=pika.BasicProperties(correlation_id= \
-                                                             props.correlation_id, content_type='text/plain'),
-                         body=str(response))
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+        if response.get("action") == "INSTANTIATE":
+            ch.basic_publish(exchange='',
+                             routing_key="vnfm.nfvo.actions.reply",
+                             properties=pika.BasicProperties(content_type='text/plain'),
+                             body=json.dumps(response))
+        else:
+            ch.basic_publish(exchange='',
+                             routing_key="vnfm.nfvo.actions",
+                             properties=pika.BasicProperties(content_type='text/plain'),
+                             body=json.dumps(response))
         log.info("Answer sent")
 
     def thread_function(self, ch, method, properties, body):
+        log.info("here")
         threading.Thread(target=self.on_request, args=(ch, method, properties, body)).start()
 
     def __init__(self, type):
         self.type = type
+        self.dispatcher = {
+            "INSTANTIATE": self.instantiate,
+            "GRANT_OPERATION": None,
+            "ALLOCATE_RESOURCES": None,
+            "SCALE_IN": self.scale,
+            "SCALE_OUT": self.scale,
+            "SCALING": None,
+            "ERROR": self.handleError,
+            "RELEASE_RESOURCES": self.terminate,
+            "MODIFY": self.modify,
+            "HEAL": self.heal,
+            "UPDATEVNFR": self.upgradeSoftware,
+            "UPDATE": self.updateSoftware,
+            "SCALED": None,
+            "CONFIGURE": self.modify,
+            "START": self.start,
+            "STOP": self.stop
+        }
 
     def run(self):
         config_file_name = "/etc/openbaton/%s/conf.ini" % self.type  # understand if it works
@@ -171,8 +322,8 @@ class AbstractVnfm(object):
 
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
 
-        log.info("Waiting for actions")
         try:
+            log.info("Waiting for actions")
             channel.start_consuming()
         except KeyboardInterrupt:
             self.unregister(_map, channel, self.type)
