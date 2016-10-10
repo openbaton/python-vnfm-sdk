@@ -313,20 +313,15 @@ class AbstractVnfm(object):
         if not os.path.exists(logging_dir):
             os.makedirs(logging_dir)
 
-            logging.basicConfig(filename=logging_dir + '/%s-vnfm.log' % _map.get('type'), level=logging.INFO)
+        file_handler = logging.FileHandler("{0}/{1}-vnfm.log".format(logging_dir, type))
+        file_handler.setLevel(level=50)
+        log.addHandler(file_handler)
 
-        if not os.path.exists(logging_dir):
-            os.makedirs(logging_dir)
-
-        logging.basicConfig(filename=logging_dir + '/ems-receiver.log', level=logging.INFO)
         username = _map.get("username")
         password = _map.get("password")
-        autodel = _map.get("autodelete")
         heartbeat = _map.get("heartbeat")
         exchange_name = _map.get("exchange")
         queuedel = True
-        if autodel == 'false':
-            queuedel = False
         if not heartbeat:
             heartbeat = '60'
         if not exchange_name:

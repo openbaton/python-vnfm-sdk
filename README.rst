@@ -1,3 +1,7 @@
+.. image:: https://raw.githubusercontent.com/openbaton/openbaton.github.io/master/images/openBaton.png
+   :width: 650 px
+
+
 Python version of the vnfm-sdk
 ==============================
 
@@ -12,38 +16,82 @@ python-vnfm-sdk in order to satisfy the demands for such a component:
 -  python 2.7
 -  pika
 
-How to install python-vfnm-sdk
-------------------------------
+How to install the python-vfnm-sdk
+----------------------------------
 
-The safer way to start is to clone the sdk and then use a `virtual environment <https://virtualenv.pypa.io/en/stable/>`__. Once activated, just run
+The safer way to start is to use a `virtual environment <https://virtualenv.pypa.io/en/stable/>`__. Once activated, just run
 
 .. code:: bash
  
-   git clone 
-   python setup.py build  
-   python setup.py install
+   pip install python-vnfm-sdk
 
-After that, in this virtual environment a module *interfaces* will be
-available from which you can inherit the AbstractVnfm class in this way:
+How to use the python-vfnm-sdk
+------------------------------
+
+First step, let's create a configuration file for the VNFManager under: /etc/openbaton/*<type>*/conf.ini (where type is the **endpoint** specified in the vnfd.json)
+
+This file should be like this:
+
+.. code:: ini
+
+    [vnfm]
+
+    log_path=/var/log/openbaton/
+    broker_ip=localhost
+    username=admin
+    password=openbaton
+    heartbeat=60
+    exchange=openbaton-exchange
+
+where:
+
+.. table:: conf.ini file definitions
+   :widths: auto
+
+   =========    =======================================================
+   name         description
+   log_path     path where the logfile will be written
+   broker_ip    Ip of the rabbitmq broker used by the nfvo
+   username     username for the rabbitmq broker used by the nfvo
+   password     password for the rabbitmq broker used by the nfvo
+   exchange     exchange name used in the rabbitmq broker by the nfvo
+   heartbeat    heartbeat for the rabbitmq connection
+   =========    =======================================================
+
+After installing the sdk, you will be able to write a Vnfm that inherit the *AbstractVnfm* class in this way:
 
 .. code:: python
 
-    import logging
+    import json
+    import logging.config
 
     from interfaces.AbstractVnfmABC import AbstractVnfm
 
     class PythonVnfm(AbstractVnfm):
-
         def upgradeSoftware(self):
             pass
 
         def updateSoftware(self):
             pass
 
-        def terminate(self, virtualNetworkFunctionRecord):
+        def terminate(self, vnf_record):
+            log.info("Executing TERMINATE for VNFR: %s" % vnf_record.get("name"))
+            return vnf_record
+
+        def stopVNFCInstance(self, vnf_record, vnfc_instance):
             pass
 
-        def scale(self, scaleOut, virtualNetworkFunctionRecord, component, scripts, dependency):
+        def stop(self, vnf_record):
+            pass
+
+        def startVNFCInstance(self, vnf_record, vnfc_instance):
+            pass
+
+        def start(self, vnf_record):
+            log.info("Executing start for VNFR: %s" % vnf_record.get("name"))
+            return vnf_record
+
+        def scale(self, scale_out, vnf_record, vnf_component, scripts, dependency):
             pass
 
         def query(self):
@@ -52,23 +100,36 @@ available from which you can inherit the AbstractVnfm class in this way:
         def notifyChange(self):
             pass
 
-        def modify(self, virtualNetworkFunctionRecord, dependency):
+        def modify(self, vnf_record, dependency):
+            log.info("Executing modify for VNFR: %s" % vnf_record.get("name"))
+            return vnf_record
+
+        def instantiate(self, vnf_record, scripts, vim_instances):
+            log.info("Executing instantiate for VNFR: %s" % vnf_record.get("name"))
+            return vnf_record
+
+        def heal(self, vnf_record, vnf_instance, cause):
             pass
 
-        def instantiate(self, virtualNetworkFunctionRecord, scripts, vimInstances):
-            pass
-
-        def heal(self, virtualNetworkFunctionRecord, vnfcInstanceComponent, cause):
-            pass
+        def handleError(self, vnf_record):
+            log.info("Executing ERROR for VNFR: %s" % vnf_record.get("name"))
+            return vnf_record
 
         def checkInstantiationFeasibility(self):
             pass
 
 
+
+Then you must start it in this way, passing the **type** to the constructor
+
+.. code:: python
+
     if __name__ == "__main__":
         logging.basicConfig(level="DEBUG")
         vnfm = PythonVnfm("python")
         vnfm.run()
+
+This will register to the NFVO and start wait for the action addressed to the VNFM of type "python" in this example
 
 Issue tracker
 -------------
@@ -130,8 +191,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Copyright © 2015-2016 `Open Baton <http://openbaton.org>`__. Licensed
-under `Apache v2
-License <http://www.apache.org/licenses/LICENSE-2.0>`__.
+under `Apache v2 License <http://www.apache.org/licenses/LICENSE-2.0>`__.
 
 Support
 -------
@@ -143,7 +203,7 @@ Supported by
 ------------
 
 .. image:: https://raw.githubusercontent.com/openbaton/openbaton.github.io/master/images/fokus.png
-  :width: 250 px
+   :width: 250 px
 
 .. image:: https://raw.githubusercontent.com/openbaton/openbaton.github.io/master/images/tu.png
    :width: 250 px
