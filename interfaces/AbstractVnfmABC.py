@@ -25,7 +25,7 @@ from utils.Utilities import get_map
 
 __author__ = 'lto'
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("org.openbaton.python.vnfm.sdk")\
 
 # TODO improve this
 ENDPOINT_TYPES = ["RABBIT", "REST"]
@@ -51,11 +51,19 @@ def check_endpoint_type(endpoint_type):
         raise PyVnfmSdkException("The endpoint type must be in %s" % ENDPOINT_TYPES)
 
 
-def get_nfv_message(action, vnfr):
+def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exception=None):
     if action == "INSTANTIATE":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
+    if action == "ERROR":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "nsrId": vnfr.get("parent_ns_id"),
+                "exception": exception}
     if action == "MODIFY":
         return ""
+    if action == "RELEASE_RESOURCES":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr}
+    if action == "START":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance,
+                "vnfrDependency": vnfr_dependency}
     pass
 
 
@@ -157,17 +165,27 @@ class AbstractVnfm(object):
         """
         pass
 
-    # TODO to be checked again!
+    # TODO to be DOUBLE checked!
     @staticmethod
     def create_vnf_record(vnfd, flavor_key, vlrs, extension):
+
+        log.debug("Requires is: %s" % vnfd.get("requires"))
+        log.debug("Provides is: %s" % vnfd.get("provides"))
+
         vnfr = dict(lifecycle_event_history=[], parent_ns_id=extension.get("nsr-id"), name=vnfd.get("name"),
-                    type=vnfd.get("type"), requires=vnfd.get("requires"), provides={}, endpoint=vnfd.get("endpoint"),
+                    type=vnfd.get("type"), requires=vnfd.get("requires"), provides=dict(), endpoint=vnfd.get("endpoint"),
                     packageId=vnfd.get("vnfPackageLocation"), monitoring_parameter=vnfd.get("monitoring_parameter"),
                     auto_scale_policy=vnfd.get("auto_scale_policy"), cyclicDependency=vnfd.get("cyclicDependency"),
-                    configuration=vnfd.get("configuration"), vdu=vnfd.get("vdu"), version=vnfd.get("version"),
+                    configurations=vnfd.get("configurations"), vdu=vnfd.get("vdu"), version=vnfd.get("version"),
                     connection_point=vnfd.get("connection_point"), deployment_flavour_key=flavor_key,
                     vnf_address=vnfd.get("vnf_address"), status="NULL", descriptor_reference=vnfd.get("id"),
                     lifecycle_event=vnfd.get("lifecycle_event"), virtual_link=vnfd.get("virtual_link"))
+        if vnfr.get("requires") is not None:
+            if vnfr.get("requires").get("configurationParameters") is None:
+                vnfr["requires"]["configurationParameters"] = []
+        if vnfr.get("provides") is not None:
+            if vnfr.get("provides").get("configurationParameters") is None:
+                vnfr["provides"]["configurationParameters"] = []
 
         # for (VirtualDeploymentUnit virtualDeploymentUnit: vnfd.getVdu()) {
         # for (VimInstance vi: vimInstances.get(virtualDeploymentUnit.getId())) {
@@ -227,6 +245,10 @@ class AbstractVnfm(object):
             vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
         if action == "START":
             vnfr = self.start(vnf_record=msg.get("virtualNetworkFunctionRecord"))
+        if action == "ERROR":
+            vnfr = self.handleError(vnf_record=msg.get("vnfr"))
+        if action == "RELEASE_RESOURCES":
+            vnfr = self.terminate(vnf_record=msg.get("vnfr"))
 
         if len(vnfr) == 0:
             raise PyVnfmSdkException("Unknown action!")
@@ -237,6 +259,8 @@ class AbstractVnfm(object):
     def on_request(self, ch, method, props, body):
         log.info("Waiting for actions")
         response = self.on_message(body)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
         if response.get("action") == "INSTANTIATE":
             ch.basic_publish(exchange='',
                              routing_key="vnfm.nfvo.actions.reply",
@@ -247,6 +271,7 @@ class AbstractVnfm(object):
                              routing_key="vnfm.nfvo.actions",
                              properties=pika.BasicProperties(content_type='text/plain'),
                              body=json.dumps(response))
+
         log.info("Answer sent")
 
     def thread_function(self, ch, method, properties, body):
@@ -254,6 +279,7 @@ class AbstractVnfm(object):
         threading.Thread(target=self.on_request, args=(ch, method, properties, body)).start()
 
     def __init__(self, type):
+        log.addHandler(logging.NullHandler())
         self.type = type
         self.dispatcher = {
             "INSTANTIATE": self.instantiate,
