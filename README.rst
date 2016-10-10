@@ -45,18 +45,22 @@ This file should be like this:
 
 where:
 
-.. table:: conf.ini file definitions
-   :widths: auto
+   +-----------+---------------------------------------------------------+
+   | name      |    description                                          |
+   +===========+=========================================================+
+   | log_path  |    path where the logfile will be written               |
+   +-----------+---------------------------------------------------------+
+   | broker_ip |   Ip of the rabbitmq broker used by the nfvo            |
+   +-----------+---------------------------------------------------------+
+   | username  |   username for the rabbitmq broker used by the nfvo     |
+   +-----------+---------------------------------------------------------+
+   | password  |   password for the rabbitmq broker used by the nfvo     |
+   +-----------+---------------------------------------------------------+
+   | exchange  |   exchange name used in the rabbitmq broker by the nfvo |
+   +-----------+---------------------------------------------------------+
+   | heartbeat |   heartbeat for the rabbitmq connection                 |
+   +-----------+---------------------------------------------------------+
 
-   =========    =======================================================
-   name         description
-   log_path     path where the logfile will be written
-   broker_ip    Ip of the rabbitmq broker used by the nfvo
-   username     username for the rabbitmq broker used by the nfvo
-   password     password for the rabbitmq broker used by the nfvo
-   exchange     exchange name used in the rabbitmq broker by the nfvo
-   heartbeat    heartbeat for the rabbitmq connection
-   =========    =======================================================
 
 After installing the sdk, you will be able to write a Vnfm that inherit the *AbstractVnfm* class in this way:
 
