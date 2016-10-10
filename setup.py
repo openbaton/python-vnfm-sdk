@@ -11,8 +11,8 @@ def read(fname):
 
 
 setup(
-    name="python-vfnm-sdk",
-    version="2.2.0-beta4",
+    name="python-vnfm-sdk",
+    version="2.2.1-beta",
     author="Open Baton",
     author_email="dev@openbaton.org",
     description="The Python version of the Open Baton vnfm-sdk",
