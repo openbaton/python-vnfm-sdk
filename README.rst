@@ -1,7 +1,3 @@
-.. image:: https://raw.githubusercontent.com/openbaton/openbaton.github.io/master/images/openBaton.png
-   :width: 650 px
-
-
 Python version of the vnfm-sdk
 ==============================
 
