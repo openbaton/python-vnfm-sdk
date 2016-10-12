@@ -254,6 +254,7 @@ class AbstractVnfm(threading.Thread):
     def __init__(self, type):
         super(AbstractVnfm, self).__init__()
         self.queuedel = True
+        self._stop = False
         log.addHandler(logging.NullHandler())
         self.type = type
         config_file_name = "/etc/openbaton/%s/conf.ini" % self.type  # understand if it works
@@ -297,7 +298,11 @@ class AbstractVnfm(threading.Thread):
         channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=True)
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
         log.info("Waiting for actions")
-        channel.start_consuming()
+        while channel._consumer_infos and not self._stop:
+            channel.connection.process_data_events(time_limit=1)
+
+    def set_stop(self):
+        self._stop = True
 
     def grant_operation(self, vnf_record):
         nfv_message = get_nfv_message("GRANT_OPERATION", vnf_record)
@@ -349,7 +354,6 @@ class AbstractVnfm(threading.Thread):
             connection.process_data_events()
 
         channel.queue_delete(queue=callback_queue)
-        connection.close()
         return json.loads(response["result"])
 
     def get_user_data(self):
@@ -380,7 +384,6 @@ class AbstractVnfm(threading.Thread):
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.register',
                               properties=pika.BasicProperties(content_type='text/plain'),
                               body=manager_endpoint.toJSON())
-        connection.close()
 
     def unregister(self):
         # UnRegistration
@@ -401,7 +404,6 @@ class AbstractVnfm(threading.Thread):
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.unregister',
                               properties=pika.BasicProperties(content_type='text/plain'),
                               body=manager_endpoint.toJSON())
-        connection.close()
 
 
 def start_vnfm_instances(vnfm_klass, type, instances=1):
@@ -417,9 +419,20 @@ def start_vnfm_instances(vnfm_klass, type, instances=1):
         threads.append(instance)
 
     while len(threads) > 0:
+        new_threads = []
         try:
-            threads = [t.join(1) for t in threads if t is not None and t.isAlive()]
+            for t in threads:
+                if t is not None and t.isAlive():
+                    t.join(1)
+                    new_threads.append(t)
+            threads = new_threads
         except KeyboardInterrupt:
+            for t in threads:
+                t.set_stop()
             log.info("Ctrl-c received! Sending kill to threads...")
-            os.kill(os.getpid(), 9)
-            exit(0)
+            vnfm.unregister()
+            vnfm.set_stop()
+            return
+
+    vnfm.unregister()
+    vnfm.set_stop()
