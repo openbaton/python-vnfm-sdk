@@ -12,12 +12,12 @@ def read(fname):
 
 setup(
     name="python-vnfm-sdk",
-    version="2.2.1-beta",
+    version="2.2.1-beta2",
     author="Open Baton",
     author_email="dev@openbaton.org",
     description="The Python version of the Open Baton vnfm-sdk",
     license="Apache 2",
-    keywords="python vnfm nfvo open baton openbaton sdk",
+    keywords="python vnfm nfvo open baton openbaton sdk nfv",
     url="http://openbaton.github.io/",
     packages=find_packages(),
     install_requires=['pika'],
