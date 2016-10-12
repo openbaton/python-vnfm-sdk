@@ -11,6 +11,10 @@ log = logging.getLogger(__name__)
 ENDPOINT_TYPES = ["RABBIT", "REST"]
 
 
+def get_version():
+    return "2.2.1b2"
+
+
 def get_map(section, config):
     dict1 = {}
     options = config.options(section)
