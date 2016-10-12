@@ -17,58 +17,21 @@ import json
 import logging
 import threading
 
-from interfaces.exceptions import PyVnfmSdkException
+import operator
+import uuid
 
 import abc
 import os
 import pika
-from utils.Utilities import get_map
+from utils.Utilities import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+from vnfm.sdk.exceptions import PyVnfmSdkException
 
 __author__ = 'lto'
 
-log = logging.getLogger("org.openbaton.python.vnfm.sdk")\
-
-# TODO improve this
-ENDPOINT_TYPES = ["RABBIT", "REST"]
+log = logging.getLogger("org.openbaton.python.vnfm.sdk")
 
 
-class ManagerEndpoint(object):
-    def __init__(self, type, endpoint, endpoint_type, description=None, enabled=True, active=True):
-        self.type = type
-        self.endpoint = endpoint
-        self.endpoint_type = endpoint_type
-        self.description = description
-        self.enabled = enabled
-        self.active = active
-
-    def toJSON(self):
-        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
-
-    pass
-
-
-def check_endpoint_type(endpoint_type):
-    if endpoint_type not in ENDPOINT_TYPES:
-        raise PyVnfmSdkException("The endpoint type must be in %s" % ENDPOINT_TYPES)
-
-
-def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exception=None):
-    if action == "INSTANTIATE":
-        return {"action": action, "virtualNetworkFunctionRecord": vnfr}
-    if action == "ERROR":
-        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "nsrId": vnfr.get("parent_ns_id"),
-                "exception": exception}
-    if action == "MODIFY":
-        return ""
-    if action == "RELEASE_RESOURCES":
-        return {"action": action, "virtualNetworkFunctionRecord": vnfr}
-    if action == "START":
-        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance,
-                "vnfrDependency": vnfr_dependency}
-    pass
-
-
-class AbstractVnfm(object):
+class AbstractVnfm(threading.Thread):
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
@@ -120,7 +83,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def start(self, vnf_record):
+    def start_vnfr(self, vnf_record):
         """
 
         :param vnf_record:
@@ -174,12 +137,13 @@ class AbstractVnfm(object):
         log.debug("Provides is: %s" % vnfd.get("provides"))
 
         vnfr = dict(lifecycle_event_history=[], parent_ns_id=extension.get("nsr-id"), name=vnfd.get("name"),
-                    type=vnfd.get("type"), requires=vnfd.get("requires"), provides=dict(), endpoint=vnfd.get("endpoint"),
+                    type=vnfd.get("type"), requires=vnfd.get("requires"), provides=dict(),
+                    endpoint=vnfd.get("endpoint"),
                     packageId=vnfd.get("vnfPackageLocation"), monitoring_parameter=vnfd.get("monitoring_parameter"),
                     auto_scale_policy=vnfd.get("auto_scale_policy"), cyclicDependency=vnfd.get("cyclicDependency"),
                     configurations=vnfd.get("configurations"), vdu=vnfd.get("vdu"), version=vnfd.get("version"),
                     connection_point=vnfd.get("connection_point"), deployment_flavour_key=flavor_key,
-                    vnf_address=vnfd.get("vnf_address"), status="NULL", descriptor_reference=vnfd.get("id"),
+                    vnf_address=[], status="NULL", descriptor_reference=vnfd.get("id"),
                     lifecycle_event=vnfd.get("lifecycle_event"), virtual_link=vnfd.get("virtual_link"))
         if vnfr.get("requires") is not None:
             if vnfr.get("requires").get("configurationParameters") is None:
@@ -229,6 +193,7 @@ class AbstractVnfm(object):
         if action == "INSTANTIATE":
             extension = msg.get("extension")
             keys = msg.get("keys")
+            log.debug("Got these keys: %s" % keys)
             vim_instances = msg.get("vimInstances")
             vnfd = msg.get("vnfd")
             vnf_package = msg.get("vnfPackage")
@@ -238,14 +203,21 @@ class AbstractVnfm(object):
                 scripts = vnf_package.get("scripts")
             else:
                 scripts = vnf_package.get("scriptsLink")
-            vnfr = self.instantiate(
-                vnf_record=AbstractVnfm.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension),
-                scripts=scripts, vim_instances=vim_instances)
+            vnf_record = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
+
+            grant_operation = self.grant_operation(vnf_record)
+            vnf_record = grant_operation["virtualNetworkFunctionRecord"]
+            vim_instances = grant_operation["vduVim"]
+
+            if bool(self._map.get("allocate", True)):
+                vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
+                    "vnfr")
+            vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
 
         if action == "MODIFY":
             vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
         if action == "START":
-            vnfr = self.start(vnf_record=msg.get("virtualNetworkFunctionRecord"))
+            vnfr = self.start_vnfr(vnf_record=msg.get("virtualNetworkFunctionRecord"))
         if action == "ERROR":
             vnfr = self.handleError(vnf_record=msg.get("vnfr"))
         if action == "RELEASE_RESOURCES":
@@ -253,8 +225,8 @@ class AbstractVnfm(object):
 
         if len(vnfr) == 0:
             raise PyVnfmSdkException("Unknown action!")
-        nfv_message = get_nfv_message(action, vnfr);
-        log.debug("answer is: %s" % nfv_message)
+        nfv_message = get_nfv_message(action, vnfr)
+        # log.debug("answer is: %s" % nfv_message)
         return nfv_message
 
     def on_request(self, ch, method, props, body):
@@ -280,97 +252,174 @@ class AbstractVnfm(object):
         threading.Thread(target=self.on_request, args=(ch, method, properties, body)).start()
 
     def __init__(self, type):
+        super(AbstractVnfm, self).__init__()
+        self.queuedel = True
         log.addHandler(logging.NullHandler())
         self.type = type
-        self.dispatcher = {
-            "INSTANTIATE": self.instantiate,
-            "GRANT_OPERATION": None,
-            "ALLOCATE_RESOURCES": None,
-            "SCALE_IN": self.scale,
-            "SCALE_OUT": self.scale,
-            "SCALING": None,
-            "ERROR": self.handleError,
-            "RELEASE_RESOURCES": self.terminate,
-            "MODIFY": self.modify,
-            "HEAL": self.heal,
-            "UPDATEVNFR": self.upgradeSoftware,
-            "UPDATE": self.updateSoftware,
-            "SCALED": None,
-            "CONFIGURE": self.modify,
-            "START": self.start,
-            "STOP": self.stop
-        }
-
-    def run(self):
         config_file_name = "/etc/openbaton/%s/conf.ini" % self.type  # understand if it works
         log.debug("Config file location: %s" % config_file_name)
         config = ConfigParser.ConfigParser()
         config.read(config_file_name)  # read config file
-        _map = get_map(section='vnfm', config=config)  # get the data from map
-        log.debug("Map is: %s" % _map)
-        logging_dir = _map.get('log_path')
+        self._map = get_map(section='vnfm', config=config)  # get the data from map
+        username = self._map.get("username")
+        password = self._map.get("password")
+        log.debug("Configuration is: %s" % self._map)
+        logging_dir = self._map.get('log_path')
 
         if not os.path.exists(logging_dir):
             os.makedirs(logging_dir)
 
-        file_handler = logging.FileHandler("{0}/{1}-vnfm.log".format(logging_dir, type))
+        file_handler = logging.FileHandler("{0}/{1}-vnfm.log".format(logging_dir, self.type))
         file_handler.setLevel(level=50)
         log.addHandler(file_handler)
 
-        username = _map.get("username")
-        password = _map.get("password")
-        heartbeat = _map.get("heartbeat")
-        exchange_name = _map.get("exchange")
-        queuedel = True
-        if not heartbeat:
-            heartbeat = '60'
-        if not exchange_name:
-            exchange_name = 'openbaton-exchange'
+        self.heartbeat = self._map.get("heartbeat")
+        self.exchange_name = self._map.get("exchange")
+        if not self.heartbeat:
+            self.heartbeat = '60'
+        if not self.exchange_name:
+            self.exchange_name = 'openbaton-exchange'
 
-        rabbit_credentials = pika.PlainCredentials(username, password)
+        self.rabbit_credentials = pika.PlainCredentials(username, password)
+
+    def run(self):
+
         connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host=_map.get("broker_ip"), credentials=rabbit_credentials,
-                                      heartbeat_interval=int(heartbeat)))
+            pika.ConnectionParameters(host=self._map.get("broker_ip"), credentials=self.rabbit_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
 
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
-        channel.exchange_declare(exchange=exchange_name, type="topic", durable=True)
+        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=True)
 
-        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=queuedel, durable=True)
-        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=queuedel, durable=True)
-        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=queuedel, durable=True)
-
-        self.register(_map, channel, self.type)
-
+        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=True)
+        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=True)
+        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=True)
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
+        log.info("Waiting for actions")
+        channel.start_consuming()
 
-        try:
-            log.info("Waiting for actions")
-            channel.start_consuming()
-        except KeyboardInterrupt:
-            self.unregister(_map, channel, self.type)
+    def grant_operation(self, vnf_record):
+        nfv_message = get_nfv_message("GRANT_OPERATION", vnf_record)
+        log.info("Executing GRANT_OPERATION")
+        result = self.exec_rpc_call(json.dumps(nfv_message))
+        log.debug("grant_allowed: %s" % result.get("grantAllowed"))
+        log.debug("vdu_vims: %s" % result.get("vduVim").keys())
+        log.debug("vnf_record: %s" % result.get("virtualNetworkFunctionRecord").get("name"))
 
-    def register(self, _map, channel, type):
+        return result
+
+    def allocate_resources(self, vnf_record, vim_instances, keys):
+        user_data = self.get_user_data()
+        nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
+                                      user_data=user_data, keys=keys)
+        log.debug("Executing ALLOCATE_RESOURCES")
+        result = self.exec_rpc_call(json.dumps(nfv_message))
+        # log.debug("Allocate resources response: \n%s" % result)
+        log.debug("vnf_record: %s" % result.get("vnfr").get("name"))
+        return result
+
+    def exec_rpc_call(self, nfv_message, queue="vnfm.nfvo.actions.reply"):
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=self._map.get("broker_ip"), credentials=self.rabbit_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
+
+        channel = connection.channel()
+        channel.basic_qos(prefetch_count=1)
+        channel = connection.channel()
+        log.debug("Channel created")
+        result = channel.queue_declare(exclusive=True)
+        callback_queue = result.method.queue
+        response = {}
+        channel.basic_consume(lambda ch, method, properties, body: operator.setitem(response, "result", body),
+                              no_ack=True,
+                              queue=callback_queue)
+        log.debug("Callback Queue is: %s" % callback_queue)
+        log.debug("Sending to %s" % queue)
+        corr_id = str(uuid.uuid4())
+        channel.basic_publish(exchange="",
+                              routing_key="vnfm.nfvo.actions.reply",
+                              properties=pika.BasicProperties(
+                                  reply_to=callback_queue,
+                                  correlation_id=corr_id,
+                                  content_type='text/plain'
+                              ),
+                              body=nfv_message)
+        while len(response) == 0:
+            connection.process_data_events()
+
+        channel.queue_delete(queue=callback_queue)
+        connection.close()
+        return json.loads(response["result"])
+
+    def get_user_data(self):
+        userdata_path = self._map.get("userdata_path", "/etc/openbaton/%s/userdata.sh" % self.type)
+        if os.path.isfile(userdata_path):
+            with open(userdata_path, "r") as f:
+                return f.read()
+        else:
+            return None
+
+    def register(self):
         # Registration
-        log.info("Registering VNFM of type %s" % type)
-        endpoint_type = _map.get("endpoint_type")
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=self._map.get("broker_ip"), credentials=self.rabbit_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
+
+        channel = connection.channel()
+        channel.basic_qos(prefetch_count=1)
+        channel = connection.channel()
+        log.info("Registering VNFM of type %s" % self.type)
+        endpoint_type = self._map.get("endpoint_type")
         log.debug("Got endpoint type: %s" % endpoint_type)
         check_endpoint_type(endpoint_type)
-        manager_endpoint = ManagerEndpoint(type=type, endpoint="nfvo.%s.actions" % type, endpoint_type=endpoint_type,
+        manager_endpoint = ManagerEndpoint(type=self.type, endpoint="nfvo.%s.actions" % self.type,
+                                           endpoint_type=endpoint_type,
                                            description="First python vnfm")
         log.debug("Sending endpoint type: " + manager_endpoint.toJSON())
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.register',
                               properties=pika.BasicProperties(content_type='text/plain'),
                               body=manager_endpoint.toJSON())
+        connection.close()
 
-    def unregister(self, _map, channel, type):
+    def unregister(self):
         # UnRegistration
-        log.info("Unregistering VNFM of type %s" % type)
-        endpoint_type = _map.get("endpoint_type")
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=self._map.get("broker_ip"), credentials=self.rabbit_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
+
+        channel = connection.channel()
+        channel.basic_qos(prefetch_count=1)
+        channel = connection.channel()
+        log.info("Unregistering VNFM of type %s" % self.type)
+        endpoint_type = self._map.get("endpoint_type")
         check_endpoint_type(endpoint_type)
-        manager_endpoint = ManagerEndpoint(type=type, endpoint="nfvo.%s.actions" % type, endpoint_type=endpoint_type,
+        manager_endpoint = ManagerEndpoint(type=self.type, endpoint="nfvo.%s.actions" % self.type,
+                                           endpoint_type=endpoint_type,
                                            description="First python vnfm")
         log.debug("Sending endpoint type: " + manager_endpoint.toJSON())
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.unregister',
                               properties=pika.BasicProperties(content_type='text/plain'),
                               body=manager_endpoint.toJSON())
+        connection.close()
+
+
+def start_vnfm_instances(vnfm_klass, type, instances=1):
+    vnfm = vnfm_klass(type)
+    vnfm.register()
+    threads = []
+    vnfm.start()
+    threads.append(vnfm)
+
+    for index in range(1, instances):
+        instance = vnfm_klass(type)
+        instance.start()
+        threads.append(instance)
+
+    while len(threads) > 0:
+        try:
+            threads = [t.join(1) for t in threads if t is not None and t.isAlive()]
+        except KeyboardInterrupt:
+            log.info("Ctrl-c received! Sending kill to threads...")
+            os.kill(os.getpid(), 9)
+            exit(0)
