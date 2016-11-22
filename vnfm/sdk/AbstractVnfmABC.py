@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import ConfigParser
+
+try:
+    import configparser as cp # py3
+except ImportError:
+    import ConfigParser as cp # py2
+
 import json
 import logging
 import threading
@@ -23,7 +28,16 @@ import uuid
 import abc
 import os
 import pika
-from utils.Utilities import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+
+try:
+    # py 2
+    from utils.Utilities \
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+except ImportError:
+    # py 3
+    from .utils.Utilities \
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+
 from vnfm.sdk.exceptions import PyVnfmSdkException
 
 __author__ = 'lto'
@@ -185,7 +199,10 @@ class AbstractVnfm(threading.Thread):
         :param body:
         :return:
         """
-        msg = json.loads(body)
+
+        # body is `str` in py2, `bytes` in py3; decode makes it a unicode string
+        # suitable for json.loads()
+        msg = json.loads(body.decode('utf-8'))
 
         action = msg.get("action")
         log.debug("Action is %s" % action)
@@ -254,12 +271,12 @@ class AbstractVnfm(threading.Thread):
     def __init__(self, type):
         super(AbstractVnfm, self).__init__()
         self.queuedel = True
-        self._stop = False
+        self._stop_running = False
         log.addHandler(logging.NullHandler())
         self.type = type
         config_file_name = "/etc/openbaton/%s/conf.ini" % self.type  # understand if it works
         log.debug("Config file location: %s" % config_file_name)
-        config = ConfigParser.ConfigParser()
+        config = cp.ConfigParser()
         config.read(config_file_name)  # read config file
         self._map = get_map(section='vnfm', config=config)  # get the data from map
         username = self._map.get("username")
@@ -298,11 +315,11 @@ class AbstractVnfm(threading.Thread):
         channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=True)
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
         log.info("Waiting for actions")
-        while channel._consumer_infos and not self._stop:
+        while channel._consumer_infos and not self._stop_running:
             channel.connection.process_data_events(time_limit=1)
 
     def set_stop(self):
-        self._stop = True
+        self._stop_running = True
 
     def grant_operation(self, vnf_record):
         nfv_message = get_nfv_message("GRANT_OPERATION", vnf_record)
@@ -354,7 +371,13 @@ class AbstractVnfm(threading.Thread):
             connection.process_data_events()
 
         channel.queue_delete(queue=callback_queue)
-        return json.loads(response["result"])
+
+        """
+        decode() ensures that this is a unicode string suitable for json
+        (json requires valid unicode), converting bytes into str in py3 and
+        str into unicode in py2.
+        """
+        return json.loads(response["result"].decode('utf-8'))
 
     def get_user_data(self):
         userdata_path = self._map.get("userdata_path", "/etc/openbaton/%s/userdata.sh" % self.type)
