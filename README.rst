@@ -9,7 +9,7 @@ Technical Requirements
 This section covers the requirements that must be met by the
 python-vnfm-sdk in order to satisfy the demands for such a component:
 
--  python 2.7
+-  python 2.7 or 3.5
 -  pika
 
 How to install the python-vfnm-sdk
@@ -18,7 +18,7 @@ How to install the python-vfnm-sdk
 The safer way to start is to use a `virtual environment <https://virtualenv.pypa.io/en/stable/>`__. Once activated, just run
 
 .. code:: bash
- 
+
    pip install python-vnfm-sdk
 
 How to use the python-vfnm-sdk

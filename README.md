@@ -1,6 +1,6 @@
    <img src="https://raw.githubusercontent.com/openbaton/openbaton.github.io/master/images/openBaton.png" width="250"/>
-  
-  Copyright © 2015-2016 [Open Baton](http://openbaton.org). 
+
+  Copyright © 2015-2016 [Open Baton](http://openbaton.org).
   Licensed under [Apache v2 License](http://www.apache.org/licenses/LICENSE-2.0).
 
 # Python version of the vnfm-sdk
@@ -9,18 +9,18 @@ This project contains a vnfm sdk for python projects.
 ## Technical Requirements
 This section covers the requirements that must be met by the python-vnfm-sdk in order to satisfy the demands for such a component:
 
-* python 2.7
+* python 2.7 or 3.5
 * pika
 
 ## How to install python-vfnm-sdk
 
-The safer way to start is to use a [virtal environment](https://virtualenv.pypa.io/en/stable/). Once activated, just run 
- 
+The safer way to start is to use a [virtal environment](https://virtualenv.pypa.io/en/stable/). Once activated, just run
+
  ```bash
  python setup.py build
  python setup.py install
  ```
- 
+
 After that, in this virtual environment a module *interfaces* will be available from which you can inherit the AbstractVnfm class in this way:
 
 ```python
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     vnfm.run()
 
 ```
- 
+
 ## Issue tracker
 
 Issues and bug reports should be posted to the GitHub Issue Tracker of this project
@@ -76,7 +76,7 @@ Issues and bug reports should be posted to the GitHub Issue Tracker of this proj
 
 OpenBaton is an open source project providing a comprehensive implementation of the ETSI Management and Orchestration (MANO) specification.
 
-Open Baton is a ETSI NFV MANO compliant framework. Open Baton was part of the OpenSDNCore (www.opensdncore.org) project started almost three years ago by Fraunhofer FOKUS with the objective of providing a compliant implementation of the ETSI NFV specification. 
+Open Baton is a ETSI NFV MANO compliant framework. Open Baton was part of the OpenSDNCore (www.opensdncore.org) project started almost three years ago by Fraunhofer FOKUS with the objective of providing a compliant implementation of the ETSI NFV specification.
 
 Open Baton is easily extensible. It integrates with OpenStack, and provides a plugin mechanism for supporting additional VIM types. It supports Network Service management either using a generic VNFM or interoperating with VNF-specific VNFM. It uses different mechanisms (REST or PUB/SUB) for interoperating with the VNFMs. It integrates with additional components for the runtime management of a Network Service. For instance, it provides autoscaling and fault management based on monitoring information coming from the the monitoring system available at the NFVI level.
 
