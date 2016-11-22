@@ -199,7 +199,10 @@ class AbstractVnfm(threading.Thread):
         :param body:
         :return:
         """
-        msg = json.loads(body)
+
+        # body is `str` in py2, `bytes` in py3; decode makes it a unicode string
+        # suitable for json.loads()
+        msg = json.loads(body.decode('utf-8'))
 
         action = msg.get("action")
         log.debug("Action is %s" % action)
