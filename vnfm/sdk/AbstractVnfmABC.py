@@ -371,7 +371,13 @@ class AbstractVnfm(threading.Thread):
             connection.process_data_events()
 
         channel.queue_delete(queue=callback_queue)
-        return json.loads(response["result"])
+
+        """
+        decode() ensures that this is a unicode string suitable for json
+        (json requires valid unicode), converting bytes into str in py3 and
+        str into unicode in py2.
+        """
+        return json.loads(response["result"].decode('utf-8'))
 
     def get_user_data(self):
         userdata_path = self._map.get("userdata_path", "/etc/openbaton/%s/userdata.sh" % self.type)
