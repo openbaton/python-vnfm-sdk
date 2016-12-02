@@ -204,47 +204,51 @@ class AbstractVnfm(threading.Thread):
         # suitable for json.loads()
         msg = json.loads(body.decode('utf-8'))
 
-        action = msg.get("action")
-        log.debug("Action is %s" % action)
-        vnfr = {}
-        if action == "INSTANTIATE":
-            extension = msg.get("extension")
-            keys = msg.get("keys")
-            log.debug("Got these keys: %s" % keys)
-            vim_instances = msg.get("vimInstances")
-            vnfd = msg.get("vnfd")
-            vnf_package = msg.get("vnfPackage")
-            vlrs = msg.get("vlrs")
-            vnfdf = msg.get("vnfdf")
-            if vnf_package.get("scriptsLink") is None:
-                scripts = vnf_package.get("scripts")
-            else:
-                scripts = vnf_package.get("scriptsLink")
-            vnf_record = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
+        try:
+            action = msg.get("action")
+            log.debug("Action is %s" % action)
+            vnfr = {}
+            if action == "INSTANTIATE":
+                extension = msg.get("extension")
+                keys = msg.get("keys")
+                log.debug("Got these keys: %s" % keys)
+                vim_instances = msg.get("vimInstances")
+                vnfd = msg.get("vnfd")
+                vnf_package = msg.get("vnfPackage")
+                vlrs = msg.get("vlrs")
+                vnfdf = msg.get("vnfdf")
+                if vnf_package.get("scriptsLink") is None:
+                    scripts = vnf_package.get("scripts")
+                else:
+                    scripts = vnf_package.get("scriptsLink")
+                vnf_record = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
 
-            grant_operation = self.grant_operation(vnf_record)
-            vnf_record = grant_operation["virtualNetworkFunctionRecord"]
-            vim_instances = grant_operation["vduVim"]
+                grant_operation = self.grant_operation(vnf_record)
+                vnf_record = grant_operation["virtualNetworkFunctionRecord"]
+                vim_instances = grant_operation["vduVim"]
 
-            if bool(self._map.get("allocate", True)):
-                vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
-                    "vnfr")
-            vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
+                if bool(self._map.get("allocate", True)):
+                    vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
+                        "vnfr")
+                vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
 
-        if action == "MODIFY":
-            vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
-        if action == "START":
-            vnfr = self.start_vnfr(vnf_record=msg.get("virtualNetworkFunctionRecord"))
-        if action == "ERROR":
-            vnfr = self.handleError(vnf_record=msg.get("vnfr"))
-        if action == "RELEASE_RESOURCES":
-            vnfr = self.terminate(vnf_record=msg.get("vnfr"))
+            if action == "MODIFY":
+                vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
+            if action == "START":
+                vnfr = self.start_vnfr(vnf_record=msg.get("virtualNetworkFunctionRecord"))
+            if action == "ERROR":
+                vnfr = self.handleError(vnf_record=msg.get("vnfr"))
+            if action == "RELEASE_RESOURCES":
+                vnfr = self.terminate(vnf_record=msg.get("vnfr"))
 
-        if len(vnfr) == 0:
-            raise PyVnfmSdkException("Unknown action!")
-        nfv_message = get_nfv_message(action, vnfr)
-        # log.debug("answer is: %s" % nfv_message)
-        return nfv_message
+            if len(vnfr) == 0:
+                raise PyVnfmSdkException("Unknown action!")
+            nfv_message = get_nfv_message(action, vnfr)
+            # log.debug("answer is: %s" % nfv_message)
+            return nfv_message
+        except PyVnfmSdkException as exception:
+            nfv_message = get_nfv_message('ERROR', msg.get("vnfr"), exception=exception)
+            return nfv_message
 
     def on_request(self, ch, method, props, body):
         log.info("Waiting for actions")

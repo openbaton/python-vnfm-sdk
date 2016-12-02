@@ -54,8 +54,9 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
     if action == "INSTANTIATE":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "ERROR":
+        java_exception = {'detailMessage':str(exception), 'cause':{'detailMessage': str(exception)}}
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "nsrId": vnfr.get("parent_ns_id"),
-                "exception": exception}
+                "exception": java_exception}
     if action == "MODIFY":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "GRANT_OPERATION":
