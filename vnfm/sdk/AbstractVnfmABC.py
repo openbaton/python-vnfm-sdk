@@ -285,6 +285,7 @@ class AbstractVnfm(threading.Thread):
         self._map = get_map(section='vnfm', config=config)  # get the data from map
         username = self._map.get("username")
         password = self._map.get("password")
+
         log.debug("Configuration is: %s" % self._map)
         logging_dir = self._map.get('log_path')
 
@@ -297,10 +298,13 @@ class AbstractVnfm(threading.Thread):
 
         self.heartbeat = self._map.get("heartbeat")
         self.exchange_name = self._map.get("exchange")
+        self.durable = self._map.get("exchange_durable")
         if not self.heartbeat:
             self.heartbeat = '60'
         if not self.exchange_name:
             self.exchange_name = 'openbaton-exchange'
+        if not self.durable:
+            self.durable = True
 
         self.rabbit_credentials = pika.PlainCredentials(username, password)
 
@@ -312,11 +316,11 @@ class AbstractVnfm(threading.Thread):
 
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
-        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=True)
+        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=self.durable)
 
-        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=True)
-        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=True)
-        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=True)
+        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=self.durable)
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
         log.info("Waiting for actions")
         while channel._consumer_infos and not self._stop_running:
