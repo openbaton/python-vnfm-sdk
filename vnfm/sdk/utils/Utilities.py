@@ -75,4 +75,6 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
     if action == "START":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance,
                 "vnfrDependency": vnfr_dependency}
+    if action == "SCALED":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance}
     pass

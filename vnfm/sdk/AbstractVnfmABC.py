@@ -208,6 +208,7 @@ class AbstractVnfm(threading.Thread):
             action = msg.get("action")
             log.debug("Action is %s" % action)
             vnfr = {}
+            nfv_message = None
             if action == "INSTANTIATE":
                 extension = msg.get("extension")
                 keys = msg.get("keys")
@@ -240,11 +241,29 @@ class AbstractVnfm(threading.Thread):
                 vnfr = self.handleError(vnf_record=msg.get("vnfr"))
             if action == "RELEASE_RESOURCES":
                 vnfr = self.terminate(vnf_record=msg.get("vnfr"))
+            if action == 'SCALE_OUT':
+                component = msg.get('component')
+                vnf_package = msg.get('vnfPackage')
+                vnfr = msg.get('virtualNetworkFunctionRecord')
+                dependency = msg.get('dependency')
+                mode = msg.get('mode')
+                extension = msg.get('extension')
+                vnfr = self.scale(None, vnfr, component, None, dependency)
+                new_vnfc_instance = None
+                for vdu in vnfr.get('vdu'):
+                    for vnfc_instance in vdu.get('vnfc_instance'):
+                        if vnfc_instance.get('id') == component.get('id'):
+                            if mode == 'STANDBY':
+                                vnfc_instance['state'] = 'STANDBY'
+                            new_vnfc_instance = vnfc_instance
+                if new_vnfc_instance == None:
+                    raise PyVnfmSdkException('Did not find a new VNFCInstance after scale out.')
+                nfv_message = get_nfv_message('SCALED', vnfr, new_vnfc_instance)
 
             if len(vnfr) == 0:
                 raise PyVnfmSdkException("Unknown action!")
-            nfv_message = get_nfv_message(action, vnfr)
-            # log.debug("answer is: %s" % nfv_message)
+            if nfv_message == None:
+                nfv_message = get_nfv_message(action, vnfr)
             return nfv_message
         except PyVnfmSdkException as exception:
             nfv_message = get_nfv_message('ERROR', msg.get("vnfr"), exception=exception)
