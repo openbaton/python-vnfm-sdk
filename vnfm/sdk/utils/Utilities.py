@@ -78,3 +78,7 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
     if action == "SCALED":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance}
     pass
+
+
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")

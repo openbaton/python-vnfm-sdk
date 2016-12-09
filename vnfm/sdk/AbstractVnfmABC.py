@@ -32,11 +32,11 @@ import pika
 try:
     # py 2
     from utils.Utilities \
-        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint, str2bool
 except ImportError:
     # py 3
     from .utils.Utilities \
-        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint, str2bool
 
 from vnfm.sdk.exceptions import PyVnfmSdkException
 
@@ -228,10 +228,11 @@ class AbstractVnfm(threading.Thread):
                 vnf_record = grant_operation["virtualNetworkFunctionRecord"]
                 vim_instances = grant_operation["vduVim"]
 
-                if bool(self._map.get("allocate", True)):
+                if str2bool(self._map.get("allocate", 'false')):
                     vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
                         "vnfr")
                 vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
+
 
             if action == "MODIFY":
                 vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
