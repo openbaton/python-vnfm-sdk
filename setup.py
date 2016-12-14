@@ -6,7 +6,6 @@ from setuptools import setup, find_packages
 # Used for the long_description.  It's nice, because now 1) we have a top level
 # README file and 2) it's easier to type in the README file than to put a raw
 # string in below ...
-from vnfm.sdk.utils.Utilities import get_version
 
 
 def read(fname):
@@ -15,7 +14,7 @@ def read(fname):
 
 setup(
     name="python-vnfm-sdk",
-    version=get_version(),
+    version='3.0.1',
     author="Open Baton",
     author_email="dev@openbaton.org",
     description="The Python version of the Open Baton vnfm-sdk",
