@@ -58,8 +58,13 @@ class AbstractVnfm(threading.Thread):
         pass
 
     @abc.abstractmethod
-    def scale(self, scale_out, vnf_record, vnf_component, scripts, dependency):
-        """This operation allows scaling (out / in, up / down) a VNF instance."""
+    def scale_out(self, vnf_record, vnf_component, scripts, dependency):
+        """This operation allows scaling out a VNF instance."""
+        pass
+
+    @abc.abstractmethod
+    def scale_in(self, vnf_record, vnfc_instance):
+        """This operation allows scaling in a VNF instance."""
         pass
 
     @abc.abstractmethod
@@ -249,7 +254,7 @@ class AbstractVnfm(threading.Thread):
                 dependency = msg.get('dependency')
                 mode = msg.get('mode')
                 extension = msg.get('extension')
-                vnfr = self.scale(None, vnfr, component, None, dependency)
+                vnfr = self.scale_out(vnfr, component, None, dependency)
                 new_vnfc_instance = None
                 for vdu in vnfr.get('vdu'):
                     for vnfc_instance in vdu.get('vnfc_instance'):
@@ -260,10 +265,13 @@ class AbstractVnfm(threading.Thread):
                 if new_vnfc_instance == None:
                     raise PyVnfmSdkException('Did not find a new VNFCInstance after scale out.')
                 nfv_message = get_nfv_message('SCALED', vnfr, new_vnfc_instance)
+            if action == 'SCALE_IN':
+                vnfr = self.scale_in(msg.get('virtualNetworkFunctionRecord'), msg.get('vnfcInstance'))
 
             if len(vnfr) == 0:
                 raise PyVnfmSdkException("Unknown action!")
-            if nfv_message == None:
+            # if the action was ERROR or SCALE_IN don't send back a message
+            if nfv_message == None and not (action == 'ERROR' or action == 'SCALE_IN'):
                 nfv_message = get_nfv_message(action, vnfr)
             return nfv_message
         except PyVnfmSdkException as exception:
