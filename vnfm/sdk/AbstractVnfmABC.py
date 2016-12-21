@@ -240,21 +240,25 @@ class AbstractVnfm(threading.Thread):
 
 
             if action == "MODIFY":
-                vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
+                vnf_record = msg.get("vnfr")
+                vnfr = self.modify(vnf_record=vnf_record, dependency=msg.get("vnfrd"))
             if action == "START":
-                vnfr = self.start_vnfr(vnf_record=msg.get("virtualNetworkFunctionRecord"))
+                vnf_record = msg.get("virtualNetworkFunctionRecord")
+                vnfr = self.start_vnfr(vnf_record=vnf_record)
             if action == "ERROR":
-                vnfr = self.handleError(vnf_record=msg.get("vnfr"))
+                vnf_record = msg.get("vnfr")
+                vnfr = self.handleError(vnf_record=vnf_record)
             if action == "RELEASE_RESOURCES":
-                vnfr = self.terminate(vnf_record=msg.get("vnfr"))
+                vnf_record = msg.get("vnfr")
+                vnfr = self.terminate(vnf_record=vnf_record)
             if action == 'SCALE_OUT':
                 component = msg.get('component')
                 vnf_package = msg.get('vnfPackage')
-                vnfr = msg.get('virtualNetworkFunctionRecord')
+                vnf_record = msg.get('virtualNetworkFunctionRecord')
                 dependency = msg.get('dependency')
                 mode = msg.get('mode')
                 extension = msg.get('extension')
-                vnfr = self.scale_out(vnfr, component, None, dependency)
+                vnfr = self.scale_out(vnf_record, component, None, dependency)
                 new_vnfc_instance = None
                 for vdu in vnfr.get('vdu'):
                     for vnfc_instance in vdu.get('vnfc_instance'):
@@ -264,9 +268,10 @@ class AbstractVnfm(threading.Thread):
                             new_vnfc_instance = vnfc_instance
                 if new_vnfc_instance == None:
                     raise PyVnfmSdkException('Did not find a new VNFCInstance after scale out.')
-                nfv_message = get_nfv_message('SCALED', vnfr, new_vnfc_instance)
+                nfv_message = get_nfv_message('SCALED', vnf_record, new_vnfc_instance)
             if action == 'SCALE_IN':
-                vnfr = self.scale_in(msg.get('virtualNetworkFunctionRecord'), msg.get('vnfcInstance'))
+                vnf_record = msg.get('virtualNetworkFunctionRecord')
+                vnfr = self.scale_in(vnf_record, msg.get('vnfcInstance'))
 
             if len(vnfr) == 0:
                 raise PyVnfmSdkException("Unknown action!")
@@ -275,7 +280,7 @@ class AbstractVnfm(threading.Thread):
                 nfv_message = get_nfv_message(action, vnfr)
             return nfv_message
         except PyVnfmSdkException as exception:
-            nfv_message = get_nfv_message('ERROR', msg.get("vnfr"), exception=exception)
+            nfv_message = get_nfv_message('ERROR', vnf_record, exception=exception)
             return nfv_message
 
     def on_request(self, ch, method, props, body):
