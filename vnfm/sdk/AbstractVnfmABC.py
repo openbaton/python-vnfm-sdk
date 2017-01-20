@@ -212,7 +212,9 @@ class AbstractVnfm(threading.Thread):
         try:
             action = msg.get("action")
             log.debug("Action is %s" % action)
-            vnfr = {}
+            vnfr = msg.get('virtualNetworkFunctionRecord')
+            if not vnfr:
+                vnfr = msg.get('vnfr')
             nfv_message = None
             if action == "INSTANTIATE":
                 extension = msg.get("extension")
@@ -227,38 +229,33 @@ class AbstractVnfm(threading.Thread):
                     scripts = vnf_package.get("scripts")
                 else:
                     scripts = vnf_package.get("scriptsLink")
-                vnf_record = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
+                vnfr = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
 
-                grant_operation = self.grant_operation(vnf_record)
-                vnf_record = grant_operation["virtualNetworkFunctionRecord"]
+                grant_operation = self.grant_operation(vnfr)
+                vnfr = grant_operation["virtualNetworkFunctionRecord"]
                 vim_instances = grant_operation["vduVim"]
 
                 if str2bool(self._map.get("allocate", 'false')):
-                    vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
+                    vnfr = self.allocate_resources(vnfr, vim_instances, keys).get(
                         "vnfr")
-                vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
+                vnfr = self.instantiate(vnf_record=vnfr, scripts=scripts, vim_instances=vim_instances)
 
 
             if action == "MODIFY":
-                vnf_record = msg.get("vnfr")
-                vnfr = self.modify(vnf_record=vnf_record, dependency=msg.get("vnfrd"))
+                vnfr = self.modify(vnf_record=vnfr, dependency=msg.get("vnfrd"))
             if action == "START":
-                vnf_record = msg.get("virtualNetworkFunctionRecord")
-                vnfr = self.start_vnfr(vnf_record=vnf_record)
+                vnfr = self.start_vnfr(vnf_record=vnfr)
             if action == "ERROR":
-                vnf_record = msg.get("vnfr")
-                vnfr = self.handleError(vnf_record=vnf_record)
+                vnfr = self.handleError(vnf_record=vnfr)
             if action == "RELEASE_RESOURCES":
-                vnf_record = msg.get("vnfr")
-                vnfr = self.terminate(vnf_record=vnf_record)
+                vnfr = self.terminate(vnf_record=vnfr)
             if action == 'SCALE_OUT':
                 component = msg.get('component')
                 vnf_package = msg.get('vnfPackage')
-                vnf_record = msg.get('virtualNetworkFunctionRecord')
                 dependency = msg.get('dependency')
                 mode = msg.get('mode')
                 extension = msg.get('extension')
-                vnfr = self.scale_out(vnf_record, component, None, dependency)
+                vnfr = self.scale_out(vnfr, component, None, dependency)
                 new_vnfc_instance = None
                 for vdu in vnfr.get('vdu'):
                     for vnfc_instance in vdu.get('vnfc_instance'):
@@ -268,10 +265,9 @@ class AbstractVnfm(threading.Thread):
                             new_vnfc_instance = vnfc_instance
                 if new_vnfc_instance == None:
                     raise PyVnfmSdkException('Did not find a new VNFCInstance after scale out.')
-                nfv_message = get_nfv_message('SCALED', vnf_record, new_vnfc_instance)
+                nfv_message = get_nfv_message('SCALED', vnfr, new_vnfc_instance)
             if action == 'SCALE_IN':
-                vnf_record = msg.get('virtualNetworkFunctionRecord')
-                vnfr = self.scale_in(vnf_record, msg.get('vnfcInstance'))
+                vnfr = self.scale_in(vnfr, msg.get('vnfcInstance'))
 
             if len(vnfr) == 0:
                 raise PyVnfmSdkException("Unknown action!")
@@ -280,7 +276,7 @@ class AbstractVnfm(threading.Thread):
                 nfv_message = get_nfv_message(action, vnfr)
             return nfv_message
         except PyVnfmSdkException as exception:
-            nfv_message = get_nfv_message('ERROR', vnf_record, exception=exception)
+            nfv_message = get_nfv_message('ERROR', vnfr, exception=exception)
             return nfv_message
 
     def on_request(self, ch, method, props, body):
