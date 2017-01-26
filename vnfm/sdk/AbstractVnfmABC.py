@@ -24,6 +24,7 @@ import threading
 
 import operator
 import uuid
+import copy
 
 import abc
 import os
@@ -150,7 +151,7 @@ class AbstractVnfm(threading.Thread):
 
     # TODO to be DOUBLE checked!
     @staticmethod
-    def create_vnf_record(vnfd, flavor_key, vlrs, extension):
+    def create_vnf_record(vnfd, flavor_key, vlrs, vim_instances, extension):
 
         log.debug("Requires is: %s" % vnfd.get("requires"))
         log.debug("Provides is: %s" % vnfd.get("provides"))
@@ -170,6 +171,22 @@ class AbstractVnfm(threading.Thread):
         if vnfr.get("provides") is not None:
             if vnfr.get("provides").get("configurationParameters") is None:
                 vnfr["provides"]["configurationParameters"] = []
+
+
+        vnfr['vdu'] = []
+        vnfd_vdus = vnfd.get('vdu')
+        for vnfd_vdu in vnfd_vdus:
+            vdu_new = copy.deepcopy(vnfd_vdu)
+            vdu_new['parent_vdu'] = vnfd_vdu.get('id')
+            vdu_new['id'] = str(uuid.uuid4())
+            passed_vim_instances = vim_instances.get(vnfd_vdu.get('id'))
+            if not passed_vim_instances:
+                passed_vim_instances = vim_instances.get(vnfd_vdu.get('name'))
+            vim_instance_names = []
+            for vi in passed_vim_instances:
+                vim_instance_names.append(vi.get('name'))
+            vdu_new['vimInstanceName'] = vim_instance_names
+            vnfr.get('vdu').append(vdu_new)
 
         # for (VirtualDeploymentUnit virtualDeploymentUnit: vnfd.getVdu()) {
         # for (VimInstance vi: vimInstances.get(virtualDeploymentUnit.getId())) {
@@ -229,7 +246,7 @@ class AbstractVnfm(threading.Thread):
                     scripts = vnf_package.get("scripts")
                 else:
                     scripts = vnf_package.get("scriptsLink")
-                vnfr = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
+                vnfr = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, vim_instances, extension)
 
                 grant_operation = self.grant_operation(vnfr)
                 vnfr = grant_operation["virtualNetworkFunctionRecord"]
