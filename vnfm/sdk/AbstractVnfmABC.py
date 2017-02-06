@@ -24,6 +24,7 @@ import threading
 
 import operator
 import uuid
+import copy
 
 import abc
 import os
@@ -32,11 +33,11 @@ import pika
 try:
     # py 2
     from utils.Utilities \
-        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint, str2bool
 except ImportError:
     # py 3
     from .utils.Utilities \
-        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint
+        import get_map, get_nfv_message, check_endpoint_type, ManagerEndpoint, str2bool
 
 from vnfm.sdk.exceptions import PyVnfmSdkException
 
@@ -58,8 +59,13 @@ class AbstractVnfm(threading.Thread):
         pass
 
     @abc.abstractmethod
-    def scale(self, scale_out, vnf_record, vnf_component, scripts, dependency):
-        """This operation allows scaling (out / in, up / down) a VNF instance."""
+    def scale_out(self, vnf_record, vnf_component, scripts, dependency):
+        """This operation allows scaling out a VNF instance."""
+        pass
+
+    @abc.abstractmethod
+    def scale_in(self, vnf_record, vnfc_instance):
+        """This operation allows scaling in a VNF instance."""
         pass
 
     @abc.abstractmethod
@@ -145,7 +151,7 @@ class AbstractVnfm(threading.Thread):
 
     # TODO to be DOUBLE checked!
     @staticmethod
-    def create_vnf_record(vnfd, flavor_key, vlrs, extension):
+    def create_vnf_record(vnfd, flavor_key, vlrs, vim_instances, extension):
 
         log.debug("Requires is: %s" % vnfd.get("requires"))
         log.debug("Provides is: %s" % vnfd.get("provides"))
@@ -165,6 +171,22 @@ class AbstractVnfm(threading.Thread):
         if vnfr.get("provides") is not None:
             if vnfr.get("provides").get("configurationParameters") is None:
                 vnfr["provides"]["configurationParameters"] = []
+
+
+        vnfr['vdu'] = []
+        vnfd_vdus = vnfd.get('vdu')
+        for vnfd_vdu in vnfd_vdus:
+            vdu_new = copy.deepcopy(vnfd_vdu)
+            vdu_new['parent_vdu'] = vnfd_vdu.get('id')
+            vdu_new['id'] = str(uuid.uuid4())
+            passed_vim_instances = vim_instances.get(vnfd_vdu.get('id'))
+            if not passed_vim_instances:
+                passed_vim_instances = vim_instances.get(vnfd_vdu.get('name'))
+            vim_instance_names = []
+            for vi in passed_vim_instances:
+                vim_instance_names.append(vi.get('name'))
+            vdu_new['vimInstanceName'] = vim_instance_names
+            vnfr.get('vdu').append(vdu_new)
 
         # for (VirtualDeploymentUnit virtualDeploymentUnit: vnfd.getVdu()) {
         # for (VimInstance vi: vimInstances.get(virtualDeploymentUnit.getId())) {
@@ -200,51 +222,88 @@ class AbstractVnfm(threading.Thread):
         :return:
         """
 
-        # body is `str` in py2, `bytes` in py3; decode makes it a unicode string
-        # suitable for json.loads()
-        msg = json.loads(body.decode('utf-8'))
+        # for python 2 and 3 compatibility
+        try:
+            msg = json.loads(body)
+        except TypeError:
+            msg = json.loads(body.decode('utf-8'))
 
-        action = msg.get("action")
-        log.debug("Action is %s" % action)
-        vnfr = {}
-        if action == "INSTANTIATE":
-            extension = msg.get("extension")
-            keys = msg.get("keys")
-            log.debug("Got these keys: %s" % keys)
-            vim_instances = msg.get("vimInstances")
-            vnfd = msg.get("vnfd")
-            vnf_package = msg.get("vnfPackage")
-            vlrs = msg.get("vlrs")
-            vnfdf = msg.get("vnfdf")
-            if vnf_package.get("scriptsLink") is None:
-                scripts = vnf_package.get("scripts")
-            else:
-                scripts = vnf_package.get("scriptsLink")
-            vnf_record = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, extension)
+        try:
+            action = msg.get("action")
+            log.debug("Action is %s" % action)
+            vnfr = msg.get('virtualNetworkFunctionRecord')
+            if not vnfr:
+                vnfr = msg.get('vnfr')
+            nfv_message = None
+            if action == "INSTANTIATE":
+                extension = msg.get("extension")
+                keys = msg.get("keys")
+                log.debug("Got these keys: %s" % keys)
+                vim_instances = msg.get("vimInstances")
+                vnfd = msg.get("vnfd")
+                vnf_package = msg.get("vnfPackage")
+                vlrs = msg.get("vlrs")
+                vnfdf = msg.get("vnfdf")
+                if vnf_package.get("scriptsLink") is None:
+                    scripts = vnf_package.get("scripts")
+                else:
+                    scripts = vnf_package.get("scriptsLink")
+                vnfr = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, vim_instances, extension)
 
-            grant_operation = self.grant_operation(vnf_record)
-            vnf_record = grant_operation["virtualNetworkFunctionRecord"]
-            vim_instances = grant_operation["vduVim"]
+                grant_operation = self.grant_operation(vnfr)
+                vnfr = grant_operation["virtualNetworkFunctionRecord"]
+                vim_instances = grant_operation["vduVim"]
 
-            if bool(self._map.get("allocate", True)):
-                vnf_record = self.allocate_resources(vnf_record, vim_instances, keys).get(
-                    "vnfr")
-            vnfr = self.instantiate(vnf_record=vnf_record, scripts=scripts, vim_instances=vim_instances)
+                if str2bool(self._map.get("allocate", 'True')):
+                    vnfr = self.allocate_resources(vnfr, vim_instances, keys).get(
+                        "vnfr")
+                vnfr = self.instantiate(vnf_record=vnfr, scripts=scripts, vim_instances=vim_instances)
 
-        if action == "MODIFY":
-            vnfr = self.modify(vnf_record=msg.get("vnfr"), dependency=msg.get("vnfrd"))
-        if action == "START":
-            vnfr = self.start_vnfr(vnf_record=msg.get("virtualNetworkFunctionRecord"))
-        if action == "ERROR":
-            vnfr = self.handleError(vnf_record=msg.get("vnfr"))
-        if action == "RELEASE_RESOURCES":
-            vnfr = self.terminate(vnf_record=msg.get("vnfr"))
 
-        if len(vnfr) == 0:
-            raise PyVnfmSdkException("Unknown action!")
-        nfv_message = get_nfv_message(action, vnfr)
-        # log.debug("answer is: %s" % nfv_message)
-        return nfv_message
+            if action == "MODIFY":
+                vnfr = self.modify(vnf_record=vnfr, dependency=msg.get("vnfrd"))
+            if action == "START":
+                vnfr = self.start_vnfr(vnf_record=vnfr)
+            if action == "ERROR":
+                vnfr = self.handleError(vnf_record=vnfr)
+            if action == "RELEASE_RESOURCES":
+                vnfr = self.terminate(vnf_record=vnfr)
+            if action == 'SCALE_OUT':
+                component = msg.get('component')
+                vnf_package = msg.get('vnfPackage')
+                dependency = msg.get('dependency')
+                mode = msg.get('mode')
+                extension = msg.get('extension')
+
+                if str2bool(self._map.get("allocate", 'True')):
+                    scaling_message = get_nfv_message('SCALING', vnfr, user_data=self.get_user_data())
+                    log.debug('The NFVO allocates resources. Send SCALING message.')
+                    result = self.exec_rpc_call(json.dumps(scaling_message))
+                    log.debug('Received {} message.'.format(result.get('action')))
+                    vnfr = result.get('vnfr')
+
+                vnfr = self.scale_out(vnfr, component, None, dependency)
+                new_vnfc_instance = None
+                for vdu in vnfr.get('vdu'):
+                    for vnfc_instance in vdu.get('vnfc_instance'):
+                        if vnfc_instance.get('vnfComponent').get('id') == component.get('id'):
+                            if mode == 'STANDBY':
+                                vnfc_instance['state'] = 'STANDBY'
+                            new_vnfc_instance = vnfc_instance
+                if new_vnfc_instance == None:
+                    raise PyVnfmSdkException('Did not find a new VNFCInstance after scale out.')
+                nfv_message = get_nfv_message('SCALED', vnfr, new_vnfc_instance)
+            if action == 'SCALE_IN':
+                vnfr = self.scale_in(vnfr, msg.get('vnfcInstance'))
+
+            if len(vnfr) == 0:
+                raise PyVnfmSdkException("Unknown action!")
+            if nfv_message == None:
+                nfv_message = get_nfv_message(action, vnfr)
+            return nfv_message
+        except PyVnfmSdkException as exception:
+            nfv_message = get_nfv_message('ERROR', vnfr, exception=exception)
+            return nfv_message
 
     def on_request(self, ch, method, props, body):
         log.info("Waiting for actions")
@@ -281,6 +340,7 @@ class AbstractVnfm(threading.Thread):
         self._map = get_map(section='vnfm', config=config)  # get the data from map
         username = self._map.get("username")
         password = self._map.get("password")
+
         log.debug("Configuration is: %s" % self._map)
         logging_dir = self._map.get('log_path')
 
@@ -293,10 +353,13 @@ class AbstractVnfm(threading.Thread):
 
         self.heartbeat = self._map.get("heartbeat")
         self.exchange_name = self._map.get("exchange")
+        self.durable = self._map.get("exchange_durable")
         if not self.heartbeat:
             self.heartbeat = '60'
         if not self.exchange_name:
             self.exchange_name = 'openbaton-exchange'
+        if not self.durable:
+            self.durable = True
 
         self.rabbit_credentials = pika.PlainCredentials(username, password)
 
@@ -308,11 +371,11 @@ class AbstractVnfm(threading.Thread):
 
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
-        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=True)
+        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=self.durable)
 
-        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=True)
-        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=True)
-        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=True)
+        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=self.durable)
         channel.basic_consume(self.thread_function, queue='nfvo.%s.actions' % self.type)
         log.info("Waiting for actions")
         while channel._consumer_infos and not self._stop_running:

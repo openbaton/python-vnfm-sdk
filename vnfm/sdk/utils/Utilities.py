@@ -12,7 +12,7 @@ ENDPOINT_TYPES = ["RABBIT", "REST"]
 
 
 def get_version():
-    return "2.2.1b2"
+    return "2.2.1b3"
 
 
 def get_map(section, config):
@@ -54,8 +54,9 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
     if action == "INSTANTIATE":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "ERROR":
+        java_exception = {'detailMessage':str(exception), 'cause':{'detailMessage': str(exception)}}
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "nsrId": vnfr.get("parent_ns_id"),
-                "exception": exception}
+                "exception": java_exception}
     if action == "MODIFY":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "GRANT_OPERATION":
@@ -69,9 +70,20 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
             "keyPairs": keys,
             "userdata": user_data
         }
+    if action == "SCALING":
+        if user_data:
+            return {"action": action, "virtualNetworkFunctionRecord": vnfr, "userData": user_data}
+        else:
+            return {"action": action, "virtualNetworkFunctionRecord": vnfr, "userData": ""}
     if action == "RELEASE_RESOURCES":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "START":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance,
                 "vnfrDependency": vnfr_dependency}
+    if action == "SCALED":
+        return {"action": action, "virtualNetworkFunctionRecord": vnfr, "vnfcInstance": vnfc_instance}
     pass
+
+
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
