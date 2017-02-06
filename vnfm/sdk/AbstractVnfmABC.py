@@ -222,9 +222,11 @@ class AbstractVnfm(threading.Thread):
         :return:
         """
 
-        # body is `str` in py2, `bytes` in py3; decode makes it a unicode string
-        # suitable for json.loads()
-        msg = json.loads(body.decode('utf-8'))
+        # for python 2 and 3 compatibility
+        try:
+            msg = json.loads(body)
+        except TypeError:
+            msg = json.loads(body.decode('utf-8'))
 
         try:
             action = msg.get("action")
@@ -252,7 +254,7 @@ class AbstractVnfm(threading.Thread):
                 vnfr = grant_operation["virtualNetworkFunctionRecord"]
                 vim_instances = grant_operation["vduVim"]
 
-                if str2bool(self._map.get("allocate", 'false')):
+                if str2bool(self._map.get("allocate", 'True')):
                     vnfr = self.allocate_resources(vnfr, vim_instances, keys).get(
                         "vnfr")
                 vnfr = self.instantiate(vnf_record=vnfr, scripts=scripts, vim_instances=vim_instances)
@@ -272,11 +274,19 @@ class AbstractVnfm(threading.Thread):
                 dependency = msg.get('dependency')
                 mode = msg.get('mode')
                 extension = msg.get('extension')
+
+                if str2bool(self._map.get("allocate", 'True')):
+                    scaling_message = get_nfv_message('SCALING', vnfr, user_data=self.get_user_data())
+                    log.debug('The NFVO allocates resources. Send SCALING message.')
+                    result = self.exec_rpc_call(json.dumps(scaling_message))
+                    log.debug('Received {} message.'.format(result.get('action')))
+                    vnfr = result.get('vnfr')
+
                 vnfr = self.scale_out(vnfr, component, None, dependency)
                 new_vnfc_instance = None
                 for vdu in vnfr.get('vdu'):
                     for vnfc_instance in vdu.get('vnfc_instance'):
-                        if vnfc_instance.get('id') == component.get('id'):
+                        if vnfc_instance.get('vnfComponent').get('id') == component.get('id'):
                             if mode == 'STANDBY':
                                 vnfc_instance['state'] = 'STANDBY'
                             new_vnfc_instance = vnfc_instance
@@ -288,8 +298,7 @@ class AbstractVnfm(threading.Thread):
 
             if len(vnfr) == 0:
                 raise PyVnfmSdkException("Unknown action!")
-            # if the action was ERROR or SCALE_IN don't send back a message
-            if nfv_message == None and not (action == 'ERROR' or action == 'SCALE_IN'):
+            if nfv_message == None:
                 nfv_message = get_nfv_message(action, vnfr)
             return nfv_message
         except PyVnfmSdkException as exception:

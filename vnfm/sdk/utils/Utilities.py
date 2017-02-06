@@ -70,6 +70,11 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
             "keyPairs": keys,
             "userdata": user_data
         }
+    if action == "SCALING":
+        if user_data:
+            return {"action": action, "virtualNetworkFunctionRecord": vnfr, "userData": user_data}
+        else:
+            return {"action": action, "virtualNetworkFunctionRecord": vnfr, "userData": ""}
     if action == "RELEASE_RESOURCES":
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "START":
