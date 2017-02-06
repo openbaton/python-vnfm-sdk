@@ -12,7 +12,7 @@ ENDPOINT_TYPES = ["RABBIT", "REST"]
 
 
 def get_version():
-    return "2.2.1b3"
+    return "2.2.1b4"
 
 
 def get_map(section, config):
