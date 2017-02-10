@@ -244,10 +244,11 @@ class AbstractVnfm(threading.Thread):
                 vnf_package = msg.get("vnfPackage")
                 vlrs = msg.get("vlrs")
                 vnfdf = msg.get("vnfdf")
-                if vnf_package.get("scriptsLink") is None:
-                    scripts = vnf_package.get("scripts")
-                else:
-                    scripts = vnf_package.get("scriptsLink")
+                if vnf_package:
+                    if vnf_package.get("scriptsLink") is None:
+                        scripts = vnf_package.get("scripts")
+                    else:
+                        scripts = vnf_package.get("scriptsLink")
                 vnfr = self.create_vnf_record(vnfd, vnfdf.get("flavour_key"), vlrs, vim_instances, extension)
 
                 grant_operation = self.grant_operation(vnfr)
