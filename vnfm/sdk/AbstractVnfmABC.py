@@ -398,6 +398,7 @@ class AbstractVnfm(threading.Thread):
     def allocate_resources(self, vnf_record, vim_instances, keys, **kwargs):
         user_data = self.get_user_data()
         user_data.replace("export MONITORING_IP=","export MONITORING_IP=%s" % kwargs.get("monitoringIp"))
+        log.debug("Sending userdata: \n%s" % user_data)
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
         log.debug("Executing ALLOCATE_RESOURCES")
