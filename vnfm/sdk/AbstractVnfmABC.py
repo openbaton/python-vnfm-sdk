@@ -256,7 +256,7 @@ class AbstractVnfm(threading.Thread):
                 vim_instances = grant_operation["vduVim"]
 
                 if str2bool(self._map.get("allocate", 'True')):
-                    vnfr = self.allocate_resources(vnfr, vim_instances, keys).get(
+                    vnfr = self.allocate_resources(vnfr, vim_instances, keys, extension).get(
                         "vnfr")
                 vnfr = self.instantiate(vnf_record=vnfr, scripts=scripts, vim_instances=vim_instances)
 
