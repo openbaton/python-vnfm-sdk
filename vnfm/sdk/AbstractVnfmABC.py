@@ -325,7 +325,6 @@ class AbstractVnfm(threading.Thread):
         log.info("Answer sent")
 
     def thread_function(self, ch, method, properties, body):
-        log.info("here")
         threading.Thread(target=self.on_request, args=(ch, method, properties, body)).start()
 
     def __init__(self, type):
@@ -397,10 +396,11 @@ class AbstractVnfm(threading.Thread):
 
     def allocate_resources(self, vnf_record, vim_instances, keys, **kwargs):
         user_data = self.get_user_data()
-        monitoring_ip = kwargs.get("monitoringIp")
-        log.debug("monitoring ip is: %s" % monitoring_ip)
-        user_data = user_data.replace("export MONITORING_IP=","export MONITORING_IP=%s" % monitoring_ip)
-        log.debug("Sending userdata: \n%s" % user_data)
+        if user_data is not None:
+            monitoring_ip = kwargs.get("monitoringIp")
+            log.debug("monitoring ip is: %s" % monitoring_ip)
+            user_data = user_data.replace("export MONITORING_IP=","export MONITORING_IP=%s" % monitoring_ip)
+            log.debug("Sending userdata: \n%s" % user_data)
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
         log.debug("Executing ALLOCATE_RESOURCES")
