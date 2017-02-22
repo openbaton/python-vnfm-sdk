@@ -309,7 +309,7 @@ class AbstractVnfm(threading.Thread):
     def on_request(self, ch, method, props, body):
         log.info("Waiting for actions")
         response = self.on_message(body)
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+
         if response is None:
             return
         if response.get("action") == "INSTANTIATE":
@@ -323,6 +323,7 @@ class AbstractVnfm(threading.Thread):
                              properties=pika.BasicProperties(content_type='text/plain'),
                              body=json.dumps(response))
 
+        ch.basic_ack(delivery_tag=method.delivery_tag)
         log.info("Answer sent")
 
     def thread_function(self, ch, method, properties, body):
