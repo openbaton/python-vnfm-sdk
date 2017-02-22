@@ -310,7 +310,8 @@ class AbstractVnfm(threading.Thread):
         log.info("Waiting for actions")
         response = self.on_message(body)
         ch.basic_ack(delivery_tag=method.delivery_tag)
-
+        if response is None:
+            return
         if response.get("action") == "INSTANTIATE":
             ch.basic_publish(exchange='',
                              routing_key="vnfm.nfvo.actions.reply",
