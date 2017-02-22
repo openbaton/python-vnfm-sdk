@@ -55,6 +55,8 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
         return {"action": action, "virtualNetworkFunctionRecord": vnfr}
     if action == "ERROR":
         java_exception = {'detailMessage':str(exception), 'cause':{'detailMessage': str(exception)}}
+        if vnfr is None:
+            vnfr = {}
         return {"action": action, "virtualNetworkFunctionRecord": vnfr, "nsrId": vnfr.get("parent_ns_id"),
                 "exception": java_exception}
     if action == "MODIFY":
