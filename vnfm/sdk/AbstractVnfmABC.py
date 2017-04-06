@@ -465,7 +465,7 @@ class AbstractVnfm(threading.Thread):
         while channel._consumer_infos and not self._stop_running:
             channel.connection.process_data_events(time_limit=1)
 
-    def __set_stop(self):
+    def _set_stop(self):
         self._stop_running = True
 
     def __grant_operation__(self, vnf_record):
@@ -537,7 +537,7 @@ class AbstractVnfm(threading.Thread):
         else:
             return None
 
-    def __register(self):
+    def _register(self):
         """
         This method sends a message to the nfvo in order to register
         """
@@ -560,7 +560,7 @@ class AbstractVnfm(threading.Thread):
                               properties=pika.BasicProperties(content_type='text/plain'),
                               body=manager_endpoint.toJSON())
 
-    def __unregister(self):
+    def _unregister(self):
         """
         This method sends a message to the nfvo in order to unregister
         """
@@ -593,7 +593,8 @@ def start_vnfm_instances(vnfm_klass, _type, instances=1):
 
     """
     vnfm = vnfm_klass(_type)
-    vnfm.__register()
+    log.debug("VNFM Class: %s" % vnfm_klass)
+    vnfm._register()
     threads = []
     vnfm.start()
     threads.append(vnfm)
@@ -614,10 +615,10 @@ def start_vnfm_instances(vnfm_klass, _type, instances=1):
         except KeyboardInterrupt:
             log.info("Ctrl-c received! Sending kill to threads...")
             for t in threads:
-                t.__set_stop()
-            vnfm.__unregister()
-            vnfm.__set_stop()
+                t._set_stop()
+            vnfm._unregister()
+            vnfm._set_stop()
             return
 
-    vnfm.__unregister()
-    vnfm.__set_stop()
+    vnfm._unregister()
+    vnfm._set_stop()
