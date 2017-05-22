@@ -173,8 +173,8 @@ class AbstractVnfm(threading.Thread):
         if not virtual_network_function_record:
             virtual_network_function_record = msg.get('vnfr')
 
-        if not virtual_network_function_record:
-            raise PyVnfmSdkException("No VNFR sent from the NFVO! i dunno what to do!:(")
+        # if not virtual_network_function_record:
+        #     raise PyVnfmSdkException("No VNFR sent from the NFVO! i dunno what to do!:(")
 
         return action, virtual_network_function_record
 
@@ -260,6 +260,8 @@ class AbstractVnfm(threading.Thread):
         except TypeError:
             msg = json.loads(body.decode('utf-8'))
 
+        log.debug("Message received: %s" % msg)
+
         try:
             action, virtual_network_function_record = self.__get_action_and_vnfr__(msg)
             nfv_message = None
@@ -283,6 +285,7 @@ class AbstractVnfm(threading.Thread):
                                                                          vlrs,
                                                                          vim_instances,
                                                                          extension)
+                log.debug("VNFR created is: %s" % virtual_network_function_record)
 
                 grant_operation = self.__grant_operation__(virtual_network_function_record)
                 virtual_network_function_record = grant_operation["virtualNetworkFunctionRecord"]
@@ -293,7 +296,7 @@ class AbstractVnfm(threading.Thread):
                         virtual_network_function_record,
                         vim_instances,
                         keys,
-                        extension).get("vnfr")
+                        **extension).get("vnfr")
 
                 virtual_network_function_record = self.instantiate(
                     vnf_record=virtual_network_function_record,
@@ -307,10 +310,14 @@ class AbstractVnfm(threading.Thread):
                     vnf_record=virtual_network_function_record,
                     dependency=msg.get("vnfrd"))
 
+                nfv_message = get_nfv_message(action, virtual_network_function_record)
+
             if action == "START":
                 vnfc_instance = msg.get('vnfcInstance')
                 virtual_network_function_record = self.start_vnfr(vnf_record=virtual_network_function_record,
                                                                   vnfc_instance=vnfc_instance)
+
+                nfv_message = get_nfv_message(action, virtual_network_function_record)
 
             if action == "STOP":
                 vnfc_instance = msg.get('vnfcInstance')
@@ -448,7 +455,7 @@ class AbstractVnfm(threading.Thread):
         self.rabbit_credentials = pika.PlainCredentials(username, password)
 
     def run(self):
-
+        log.debug("Connecting to %s" % self.properties.get("broker_ip"))
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(host=self.properties.get("broker_ip"), credentials=self.rabbit_credentials,
                                       heartbeat_interval=int(self.heartbeat)))
