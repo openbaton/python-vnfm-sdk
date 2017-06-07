@@ -294,6 +294,7 @@ class AbstractVnfm(threading.Thread):
                 if str2bool(self.properties.get("allocate", 'True')):
                     virtual_network_function_record = self.__allocate_resources__(
                         virtual_network_function_record,
+                        vnf_package,
                         vim_instances,
                         keys,
                         **extension).get("vnfr")
@@ -430,7 +431,7 @@ class AbstractVnfm(threading.Thread):
         self._stop_running = False
         log.addHandler(logging.NullHandler())
         self.type = _type
-        config_file_name = "/etc/openbaton/%s/conf.ini" % self.type
+        config_file_name = "/etc/openbaton/vnfm/%s/conf.ini" % self.type
         log.debug("Config file location: %s" % config_file_name)
         config = config_parser.ConfigParser()
         config.read(config_file_name)
@@ -485,7 +486,7 @@ class AbstractVnfm(threading.Thread):
 
         return result
 
-    def __allocate_resources__(self, vnf_record, vim_instances, keys, **kwargs):
+    def __allocate_resources__(self, vnf_record, vnf_package, vim_instances, keys, **kwargs):
         user_data = self.get_user_data()
         if user_data is not None:
             monitoring_ip = kwargs.get("monitoringIp")
