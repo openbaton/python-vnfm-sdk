@@ -425,16 +425,18 @@ class AbstractVnfm(threading.Thread):
         log.info("here")
         threading.Thread(target=self.__on_request__, args=(ch, method, properties, body)).start()
 
-    def __init__(self, _type):
+    def __init__(self, _type, config_file):
         super(AbstractVnfm, self).__init__()
+
         self.queuedel = True
         self._stop_running = False
         log.addHandler(logging.NullHandler())
         self.type = _type
-        config_file_name = "/etc/openbaton/vnfm/%s/conf.ini" % self.type
-        log.debug("Config file location: %s" % config_file_name)
+
+        # Configuration file initialisation
+        log.debug("Config file location: %s" % config_file)
         config = config_parser.ConfigParser()
-        config.read(config_file_name)
+        config.read(config_file)
         self.properties = get_map(section='vnfm', config=config)
         username = self.properties.get("username")
         password = self.properties.get("password")
@@ -591,16 +593,18 @@ class AbstractVnfm(threading.Thread):
                               body=manager_endpoint.toJSON())
 
 
-def start_vnfm_instances(vnfm_klass, _type, instances=1):
+def start_vnfm_instances(vnfm_klass, _type, config_file, instances=1):
     """
     This utility method start :instances number of thread of class vnfm_klass.
 
     :param vnfm_klass: the Class of the VNFM
     :param _type: the type of the VNFM
+    :param config_file: the configuration file of the VNFM
     :param instances: the number of instances
 
     """
-    vnfm = vnfm_klass(_type)
+
+    vnfm = vnfm_klass(_type, config_file)
     log.debug("VNFM Class: %s" % vnfm_klass)
     vnfm._register()
     threads = []
@@ -608,7 +612,7 @@ def start_vnfm_instances(vnfm_klass, _type, instances=1):
     threads.append(vnfm)
 
     for index in range(1, instances):
-        instance = vnfm_klass(_type)
+        instance = vnfm_klass(_type, config_file)
         instance.start()
         threads.append(instance)
 
