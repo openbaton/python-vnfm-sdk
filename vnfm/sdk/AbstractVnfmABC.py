@@ -18,16 +18,15 @@ try:
 except ImportError:
     import ConfigParser as config_parser  # py2
 
+import abc
+import copy
 import json
 import logging
-import threading
-
 import operator
-import uuid
-import copy
-
-import abc
 import os
+import threading
+import uuid
+
 import pika
 
 try:
@@ -62,7 +61,7 @@ class AbstractVnfm(threading.Thread):
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def instantiate(self, vnf_record, scripts, vim_instances):
+    def instantiate(self, vnf_record, scripts, vim_instances, package=None):
         """This operation allows the VNFM to instantiate the vnf_record."""
         pass
 
@@ -302,7 +301,8 @@ class AbstractVnfm(threading.Thread):
                 virtual_network_function_record = self.instantiate(
                     vnf_record=virtual_network_function_record,
                     scripts=scripts,
-                    vim_instances=vim_instances)
+                    vim_instances=vim_instances,
+                    package=vnf_package)
 
                 nfv_message = get_nfv_message(action, virtual_network_function_record)
 
@@ -438,8 +438,8 @@ class AbstractVnfm(threading.Thread):
         config = config_parser.ConfigParser()
         config.read(config_file)
         self.properties = get_map(section='vnfm', config=config)
-        username = self.properties.get("username")
-        password = self.properties.get("password")
+        guest_username = self.properties.get("username")
+        guest_password = self.properties.get("password")
 
         log.debug("Configuration is: %s" % self.properties)
         logging_dir = self.properties.get('log_path')
@@ -454,8 +454,48 @@ class AbstractVnfm(threading.Thread):
         self.heartbeat = self.properties.get("heartbeat", "60")
         self.exchange_name = self.properties.get("exchange", 'openbaton-exchange')
         self.durable = self.properties.get("exchange_durable", True)
+        self.guest_rabbit_credentials = pika.PlainCredentials(guest_username, guest_password)
 
-        self.rabbit_credentials = pika.PlainCredentials(username, password)
+        self.manager_endpoint = ManagerEndpoint(type=self.type,
+                                                endpoint=self.type,
+                                                endpointType='RABBIT',
+                                                description="First python vnfm")
+        _body = {
+            "type": self.type,
+            "action": "register",
+            "vnfmManagerEndpoint": self.manager_endpoint.toJSON()
+        }
+        self.corr_id = str(uuid.uuid4())
+        self.response = None
+        log.info("Registering VNFM of type %s" % self.type)
+        ## First register to the service agent queue
+
+        self.connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                      credentials=self.guest_rabbit_credentials))
+
+        self.channel = self.connection.channel()
+        # self.channel.basic_qos(prefetch_count=1)
+        result = self.channel.queue_declare(exclusive=True)
+        self.callback_queue = result.method.queue
+        self.channel.basic_consume(self._on_response, no_ack=True,
+                                   queue=self.callback_queue)
+
+        body = json.dumps(_body)
+        log.debug("Sending body: %s" % body)
+        self.channel.basic_publish(exchange='openbaton-exchange', routing_key='nfvo.manager.handling',
+                                   properties=pika.BasicProperties(reply_to=self.callback_queue,
+                                                                   correlation_id=self.corr_id),
+                                   body=str(body))
+        while self.response is None:
+            self.connection.process_data_events()
+        self.connection.close()
+
+    def _on_response(self, ch, method, props, body):
+        if self.corr_id == props.correlation_id:
+            log.debug("Received :%s" % type(body))
+            self.response = json.loads(body.decode("utf-8"))
+            self.rabbit_credentials = pika.PlainCredentials(self.response.get("rabbitUsername"), self.response.get('rabbitPassword'))
 
     def run(self):
         log.debug("Connecting to %s" % self.properties.get("broker_ip"))
@@ -465,12 +505,12 @@ class AbstractVnfm(threading.Thread):
 
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
-        channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=self.durable)
+        # channel.exchange_declare(exchange=self.exchange_name, type="topic", durable=self.durable)
 
-        channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=self.durable)
-        channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=self.durable)
-        channel.queue_declare(queue='nfvo.%s.actions' % self.type, auto_delete=self.queuedel, durable=self.durable)
-        channel.basic_consume(self.__thread_function__, queue='nfvo.%s.actions' % self.type)
+        # channel.queue_declare(queue='vnfm.nfvo.actions', auto_delete=self.queuedel, durable=self.durable)
+        # channel.queue_declare(queue='vnfm.nfvo.actions.reply', auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_declare(queue='%s' % self.type, auto_delete=self.queuedel, durable=self.durable)
+        channel.basic_consume(self.__thread_function__, queue='%s' % self.type)
         log.info("Waiting for actions")
         while channel._consumer_infos and not self._stop_running:
             channel.connection.process_data_events(time_limit=1)
@@ -493,7 +533,7 @@ class AbstractVnfm(threading.Thread):
         if user_data is not None:
             monitoring_ip = kwargs.get("monitoringIp")
             log.debug("monitoring ip is: %s" % monitoring_ip)
-            user_data = user_data.replace("export MONITORING_IP=","export MONITORING_IP=%s" % monitoring_ip)
+            user_data = user_data.replace("export MONITORING_IP=", "export MONITORING_IP=%s" % monitoring_ip)
             log.debug("Sending userdata: \n%s" % user_data)
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
@@ -557,18 +597,11 @@ class AbstractVnfm(threading.Thread):
 
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
-        channel = connection.channel()
-        log.info("Registering VNFM of type %s" % self.type)
-        endpoint_type = self.properties.get("endpoint_type")
-        log.debug("Got endpoint type: %s" % endpoint_type)
-        check_endpoint_type(endpoint_type)
-        manager_endpoint = ManagerEndpoint(type=self.type, endpoint="nfvo.%s.actions" % self.type,
-                                           endpoint_type=endpoint_type,
-                                           description="First python vnfm")
-        log.debug("Sending endpoint type: " + manager_endpoint.toJSON())
+
+        log.debug("Sending endpoint type: " + self.manager_endpoint.toJSON())
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.register',
                               properties=pika.BasicProperties(content_type='text/plain'),
-                              body=manager_endpoint.toJSON())
+                              body=self.manager_endpoint.toJSON())
 
     def _unregister(self):
         """
@@ -585,7 +618,7 @@ class AbstractVnfm(threading.Thread):
         endpoint_type = self.properties.get("endpoint_type")
         check_endpoint_type(endpoint_type)
         manager_endpoint = ManagerEndpoint(type=self.type, endpoint="nfvo.%s.actions" % self.type,
-                                           endpoint_type=endpoint_type,
+                                           endpointType="RABBIT",
                                            description="First python vnfm")
         log.debug("Sending endpoint type: " + manager_endpoint.toJSON())
         channel.basic_publish(exchange='', routing_key='nfvo.vnfm.unregister',

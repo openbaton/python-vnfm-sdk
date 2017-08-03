@@ -30,10 +30,10 @@ def get_map(section, config):
 
 
 class ManagerEndpoint(object):
-    def __init__(self, type, endpoint, endpoint_type, description=None, enabled=True, active=True):
+    def __init__(self, type, endpoint, endpointType, description=None, enabled=True, active=True):
         self.type = type
         self.endpoint = endpoint
-        self.endpoint_type = endpoint_type
+        self.endpointType = endpointType
         self.description = description
         self.enabled = enabled
         self.active = active
