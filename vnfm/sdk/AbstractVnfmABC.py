@@ -199,6 +199,7 @@ class AbstractVnfm(threading.Thread):
         vnfr = dict(lifecycle_event_history=[],
                     parent_ns_id=extension.get("nsr-id"),
                     name=vnfd.get("name"),
+                    vendor=vnfd.get("vendor"),
                     type=vnfd.get("type"),
                     requires=vnfd.get("requires"),
                     provides=dict(),
