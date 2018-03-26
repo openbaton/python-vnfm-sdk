@@ -17,56 +17,8 @@ This section covers the requirements that must be met by the python-vnfm-sdk in 
 The safer way to start is to use a [virtal environment](https://virtualenv.pypa.io/en/stable/). Once activated, just run
 
  ```bash
- python setup.py build
- python setup.py install
+ pip install python-vnfm-sdk
  ```
-
-After that, in this virtual environment a module *interfaces* will be available from which you can inherit the AbstractVnfm class in this way:
-
-```python
-import logging
-
-from interfaces.AbstractVnfmABC import AbstractVnfm
-
-class PythonVnfm(AbstractVnfm):
-
-    def upgradeSoftware(self):
-        pass
-
-    def updateSoftware(self):
-        pass
-
-    def terminate(self, virtualNetworkFunctionRecord):
-        pass
-
-    def scale(self, scaleOut, virtualNetworkFunctionRecord, component, scripts, dependency):
-        pass
-
-    def query(self):
-        pass
-
-    def notifyChange(self):
-        pass
-
-    def modify(self, virtualNetworkFunctionRecord, dependency):
-        pass
-
-    def instantiate(self, virtualNetworkFunctionRecord, scripts, vimInstances):
-        pass
-
-    def heal(self, virtualNetworkFunctionRecord, vnfcInstanceComponent, cause):
-        pass
-
-    def checkInstantiationFeasibility(self):
-        pass
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level="DEBUG")
-    vnfm = PythonVnfm("python")
-    vnfm.run()
-
-```
 
 ## Issue tracker
 
