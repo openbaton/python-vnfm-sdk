@@ -20,6 +20,49 @@ The safer way to start is to use a [virtal environment](https://virtualenv.pypa.
  pip install python-vnfm-sdk
  ```
 
+## How to configure your vnfm
+
+The sdk runs a certain number of instances of the vnfm by invoking the method:
+
+```python
+def start_vnfm_instances(vnfm_klass, config_file_path, instances=1, **kwargs):
+    # ....
+    pass
+```
+where the parameters are the Vnfm class that implements AbstractVnfm, the config file path for the vnfm, the number of instances and the instantiation arguments for the vnfm class.
+
+The `ini` config file looks like 
+```ini
+[vnfm]
+
+endpoint_type=RABBIT
+type=python
+endpoint=python-endpoint
+log_path=/var/log/openbaton/
+broker_ip=127.0.0.1
+autodelete=true
+heartbeat=60
+exchange=openbaton-exchange
+
+```
+
+where:
+
+| name            |    description                                   |
+|-----------------|--------------------------------------------------|
+| type            |   The type of the vnfm        |
+| endpoint_type   |   must be RABBIT                                 |
+| broker_ip       |   Ip of the rabbitmq broker used by the nfvo     |
+| username        |   username for the rabbitmq broker used to connect to the manager queue of the nfvo|
+| password        |   password for the rabbitmq broker used to connect to the manager queue of the nfvo|
+| exchange        |   exchange name used in the rabbitmq broker by the nfvo |
+| autodelete      |   true or false in case you want the endpoint queue to have the autodelete property (usually true) |
+| heartbeat       |   heartbeat for the rabbitmq connection          |
+| log_path        |   path where the logfile will be written        |
+
+
+see the [python dummy vnfm as example](https://github.com/openbaton/python-vnfm-dummy)
+ 
 ## Issue tracker
 
 Issues and bug reports should be posted to the GitHub Issue Tracker of this project
