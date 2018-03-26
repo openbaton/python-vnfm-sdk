@@ -1,4 +1,5 @@
 import os
+
 from setuptools import setup, find_packages
 
 
@@ -14,7 +15,7 @@ def read(fname):
 
 setup(
     name="python-vnfm-sdk",
-    version='6.0.0b',
+        version='5.2.0',
     author="Open Baton",
     author_email="dev@openbaton.org",
     description="The Python version of the Open Baton vnfm-sdk",
@@ -22,7 +23,10 @@ setup(
     keywords="python vnfm nfvo open baton openbaton sdk",
     url="http://openbaton.github.io/",
     packages=find_packages(),
-    install_requires=['pika'],
+        install_requires=[
+            'pika',
+            'futures'  # for py2
+        ],
     long_description=read('README.rst'),
     classifiers=[
         "Development Status :: 4 - Beta",

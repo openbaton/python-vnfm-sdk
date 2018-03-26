@@ -1,3 +1,9 @@
+from __future__ import print_function
+
+import abc
+import json
+import logging
+import os
 # Copyright (c) 2015 Fraunhofer FOKUS. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,32 +18,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import sys
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+import pika
 import six
-import sys
 
-import time
-
-try:
+if six.PY3:
     import configparser as config_parser  # py3
-except ImportError:
+else:
     import ConfigParser as config_parser  # py2
 
-import json
-import logging
-import threading
-
-import operator
-import uuid
-
-import abc
-import os
-import pika
-
 from openbaton.utils import get_action_and_vnfr, create_vnf_record, get_new_vnfc_instance, get_scripts_from_vnfp, \
-    get_map, check_endpoint_type, get_nfv_message, str2bool
+    get_map, check_endpoint_type, get_nfv_message, str2bool, exec_rpc_call
 
 from openbaton.exceptions import PyVnfmSdkException
 
@@ -92,10 +87,7 @@ class VnfmListener(object):
         self.durable = self.properties.get("exchange_durable", True)
 
         self.rabbit_mgmt_credentials = pika.PlainCredentials(username, password)
-        self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=self.rabbit_mgmt_credentials,
-                                          heartbeat_interval=int(self.heartbeat)))
+
         self.username = None
         self.password = None
         self.rabbit_private_credentials = None
@@ -103,7 +95,11 @@ class VnfmListener(object):
         self.executor = ThreadPoolExecutor(max_workers=100)
 
     def _start_listen(self):
-        channel = self.connection.channel()
+        connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                          credentials=self.rabbit_private_credentials,
+                                          heartbeat_interval=int(self.heartbeat)))
+        channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
 
         channel.queue_declare(queue=self.endpoint, auto_delete=self.queuedel, durable=self.durable)
@@ -115,7 +111,7 @@ class VnfmListener(object):
 
     def _on_message(self, ch, method, props, body):
         vnfm = self.instantiate_vnfm()
-        vnfm._setup(self.connection, self.properties)
+        vnfm._setup(self.rabbit_private_credentials, self.properties, heartbeat=int(self.heartbeat))
         self.executor.submit(vnfm._execute_action, body, props.reply_to)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -127,51 +123,23 @@ class VnfmListener(object):
         This method sends a message to the nfvo in order to register
         """
 
-        channel = self.connection.channel()
-        channel.basic_qos(prefetch_count=1)
         log.info("Registering VNFM of type %s" % self.type)
-
         check_endpoint_type(self.endpoint_type)
-        response = None
-
-        q = channel.queue_declare(exclusive=True)
-        callback_queue = q.method.queue
-        corr_id = str(uuid.uuid4())
-
-        def on_response(ch, method, props, body):
-            nonlocal response
-            if corr_id == props.correlation_id:
-                response = body
-
         manager_endpoint = self.get_manager_endpoint()
-        log.debug("Sending endpoint type: %s" % manager_endpoint)
-
-        channel.basic_consume(on_response, no_ack=True, queue=callback_queue)
-        channel.basic_publish(exchange='openbaton-exchange',
-                              routing_key='nfvo.manager.handling',
-                              properties=pika.BasicProperties(content_type='text/plain',
-                                                              reply_to=callback_queue,
-                                                              correlation_id=corr_id, ),
-                              body=json.dumps({
-                                  'action':              'register',
-                                  'type':                manager_endpoint.get('type'),
-                                  "vnfmManagerEndpoint": manager_endpoint,
-                              }))
-
-        while response is None:
-            self.connection.process_data_events()
-
-        response = json.loads(response)
+        connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                          credentials=self.rabbit_mgmt_credentials,
+                                          heartbeat_interval=int(self.heartbeat)))
+        response = exec_rpc_call(connection, {
+            'action':              'register',
+            'type':                manager_endpoint.get('type'),
+            "vnfmManagerEndpoint": manager_endpoint,
+        }, 'nfvo.manager.handling')
         self.username = response.get('rabbitUsername')
         self.password = response.get('rabbitPassword')
         self.rabbit_private_credentials = pika.PlainCredentials(self.username, self.password)
-        self.connection.close()
-
-        self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=self.rabbit_private_credentials,
-                                          heartbeat_interval=int(self.heartbeat)))
-        return self.rabbit_private_credentials
+        log.debug("Got private temp credentials: usr:%s, pwd:%s" % (self.username, self.password))
+        # self.connection.close()
 
     def get_manager_endpoint(self):
         manager_endpoint = dict(type=self.type,
@@ -186,8 +154,11 @@ class VnfmListener(object):
         """
         This method sends a message to the nfvo in order to unregister
         """
-
-        channel = self.connection.channel()
+        connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                          credentials=self.rabbit_mgmt_credentials,
+                                          heartbeat_interval=int(self.heartbeat)))
+        channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
         log.info("Unregistering VNFM of type %s" % self.type)
         manager_endpoint = self.get_manager_endpoint()
@@ -381,9 +352,11 @@ class AbstractVnfm(object):
                                 **extension).get("vnfr")
                         if not virtual_network_function_record:
                             return
-                    except:
-                        traceback.print_exc()
-                        exit(1)
+                    except Exception as e:
+                        if not isinstance(e, PyVnfmSdkException) or (isinstance(e, PyVnfmSdkException) and not e.vnfr):
+                            traceback.print_exc()
+                        log.error("Exception while allocating resources: %s" % e)
+                        raise e
 
                 virtual_network_function_record = self.instantiate(
                         vnf_record=virtual_network_function_record,
@@ -439,7 +412,7 @@ class AbstractVnfm(object):
                                                       virtual_network_function_record,
                                                       user_data=self.get_user_data())
                     log.debug('The NFVO allocates resources. Send SCALING message.')
-                    result = self._exec_rpc_call(json.dumps(scaling_message))
+                    result = exec_rpc_call(self.connection, json.dumps(scaling_message), "vnfm.nfvo.actions.reply")
                     log.debug('Received {} message.'.format(result.get('action')))
                     virtual_network_function_record = result.get('vnfr')
                     new_vnfc_instance = get_new_vnfc_instance(virtual_network_function_record, component)
@@ -465,12 +438,12 @@ class AbstractVnfm(object):
             if action not in __KNOWN_ACTIONS__:
                 raise PyVnfmSdkException("Unknown action!")
 
-            self._handle_answer(nfv_message, reply_to)
-
         except Exception as exception:
             traceback.print_exc()
+            if isinstance(exception, PyVnfmSdkException) and exception.vnfr:
+                virtual_network_function_record = exception.vnfr
             nfv_message = get_nfv_message('ERROR', virtual_network_function_record, exception=exception)
-            return nfv_message
+        self._handle_answer(nfv_message, reply_to)
 
     def _handle_answer(self, nfv_message, reply_to=None):
         ch = self.connection.channel()
@@ -496,7 +469,7 @@ class AbstractVnfm(object):
     def _grant_operation(self, vnf_record):
         nfv_message = get_nfv_message("GRANT_OPERATION", vnf_record)
         log.info("Executing GRANT_OPERATION")
-        result = self._exec_rpc_call(json.dumps(nfv_message))
+        result = exec_rpc_call(self.connection, json.dumps(nfv_message), "vnfm.nfvo.actions.reply")
         log.debug("grant_allowed: %s" % result.get("grantAllowed"))
         log.debug("vdu_vims: %s" % result.get("vduVim").keys())
         log.debug("vnf_record: %s" % result.get("virtualNetworkFunctionRecord").get("name"))
@@ -514,45 +487,15 @@ class AbstractVnfm(object):
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
         log.debug("Executing ALLOCATE_RESOURCES")
-        result = self._exec_rpc_call(json.dumps(nfv_message))
-        if result:
-            if result.get('vnfr'):
-                log.debug("vnf_record: %s has allocated resources" % result.get("vnfr").get("name"))
-                return result
-
-    def _exec_rpc_call(self, nfv_message, queue="vnfm.nfvo.actions.reply"):
-
-        channel = self.connection.channel()
-        channel.basic_qos(prefetch_count=1)
-        log.debug("Channel created")
-        result = channel.queue_declare(exclusive=True)
-        callback_queue = result.method.queue
-        response = None
-
-        def on_response(ch, method, props, body):
-            nonlocal response
-            if corr_id == props.correlation_id:
-                response = body
-
-        channel.basic_consume(on_response,
-                              no_ack=True,
-                              queue=callback_queue)
-        log.debug("Callback Queue is: %s" % callback_queue)
-        log.debug("Sending to %s" % queue)
-        corr_id = str(uuid.uuid4())
-        channel.basic_publish(exchange="",
-                              routing_key="vnfm.nfvo.actions.reply",
-                              properties=pika.BasicProperties(reply_to=callback_queue,
-                                                              correlation_id=corr_id,
-                                                              content_type='text/plain'),
-                              body=nfv_message)
-        while not response:
-            self.connection.process_data_events()
-            time.sleep(0.5)
-
-        channel.queue_delete(queue=callback_queue)
-
-        return json.loads(response.decode('utf-8'))
+        result = exec_rpc_call(self.connection, json.dumps(nfv_message), "vnfm.nfvo.actions.reply")
+        if not result:
+            raise PyVnfmSdkException("Got empty message from nfvo while allocating resource!")
+        elif result.get('action') == 'ERROR':
+            raise PyVnfmSdkException("Not able to allocate Resources because: %s" % result.get('message'),
+                                     vnfr=result.get('vnfr'))
+        else:
+            log.debug("vnf_record: %s has allocated resources" % result.get("vnfr").get("name"))
+            return result
 
     def get_user_data(self):
         """
@@ -569,9 +512,12 @@ class AbstractVnfm(object):
         else:
             return None
 
-    def _setup(self, connection, properties):
-        self.connection = connection
+    def _setup(self, creds, properties, heartbeat=60):
         self.properties = properties
+        self.connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                          credentials=creds,
+                                          heartbeat_interval=heartbeat))
 
 
 def start_vnfm_instances(vnfm_klass, config_file_path, instances=1, **kwargs):
@@ -579,8 +525,9 @@ def start_vnfm_instances(vnfm_klass, config_file_path, instances=1, **kwargs):
     This utility method start :instances number of thread of class vnfm_klass.
 
     :param vnfm_klass: the Class of the VNFM
-    :param _type: the type of the VNFM
+    :param config_file_path: the config file path for the vnfm
     :param instances: the number of instances
+    :param kwargs: the instantiation arguments for the vnfm class
 
     """
 
