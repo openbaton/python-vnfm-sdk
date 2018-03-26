@@ -12,4 +12,4 @@ python:
 install:
   - pip install .
 
-scritp: python setup.py test
+script: python setup.py test
