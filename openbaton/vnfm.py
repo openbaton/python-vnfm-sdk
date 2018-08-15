@@ -43,13 +43,16 @@ stop = False
 __KNOWN_ACTIONS__ = [
     'INSTANTIATE',
     'MODIFY',
+    'CONFIGURE',
     'START',
     'STOP',
     'SCALE_OUT',
     'SCALE_IN',
     'RELEASE_RESOURCES',
     'HEAL',
-    'ERROR'
+    'ERROR',
+    'RESUME',
+    'EXECUTE'
 ]
 
 
@@ -78,15 +81,18 @@ class VnfmListener(object):
         if not os.path.exists(logging_dir):
             os.makedirs(logging_dir)
 
-        file_handler = logging.FileHandler("{0}/{1}-vnfm.log".format(logging_dir, self.type))
+        file_handler = logging.FileHandler(
+            "{0}/{1}-vnfm.log".format(logging_dir, self.type))
         file_handler.setLevel(level=logging.DEBUG)
         log.addHandler(file_handler)
 
         self.heartbeat = self.properties.get("heartbeat", "60")
-        self.exchange_name = self.properties.get("exchange", 'openbaton-exchange')
+        self.exchange_name = self.properties.get(
+            "exchange", 'openbaton-exchange')
         self.durable = self.properties.get("exchange_durable", True)
 
-        self.rabbit_mgmt_credentials = pika.PlainCredentials(username, password)
+        self.rabbit_mgmt_credentials = pika.PlainCredentials(
+            username, password)
 
         self.username = None
         self.password = None
@@ -96,14 +102,16 @@ class VnfmListener(object):
 
     def _start_listen(self):
         connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=self.rabbit_private_credentials,
-                                          heartbeat_interval=int(self.heartbeat)))
+            pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                      credentials=self.rabbit_private_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
 
-        channel.queue_declare(queue=self.endpoint, auto_delete=self.queuedel, durable=self.durable)
-        channel.queue_bind(queue=self.endpoint, exchange=self.exchange_name, routing_key=self.endpoint)
+        channel.queue_declare(queue=self.endpoint,
+                              auto_delete=self.queuedel, durable=self.durable)
+        channel.queue_bind(
+            queue=self.endpoint, exchange=self.exchange_name, routing_key=self.endpoint)
         channel.basic_consume(self._on_message, queue=self.endpoint)
         log.info("Waiting for actions")
         while channel._consumer_infos and not self._stop_running:
@@ -111,7 +119,8 @@ class VnfmListener(object):
 
     def _on_message(self, ch, method, props, body):
         vnfm = self.instantiate_vnfm()
-        vnfm._setup(self.rabbit_private_credentials, self.properties, heartbeat=int(self.heartbeat))
+        vnfm._setup(self.rabbit_private_credentials,
+                    self.properties, heartbeat=int(self.heartbeat))
         self.executor.submit(vnfm._execute_action, body, props.reply_to)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -127,18 +136,20 @@ class VnfmListener(object):
         check_endpoint_type(self.endpoint_type)
         manager_endpoint = self.get_manager_endpoint()
         connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=self.rabbit_mgmt_credentials,
-                                          heartbeat_interval=int(self.heartbeat)))
+            pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                      credentials=self.rabbit_mgmt_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
         response = exec_rpc_call(connection, {
-            'action':              'register',
-            'type':                manager_endpoint.get('type'),
+            'action': 'register',
+            'type': manager_endpoint.get('type'),
             "vnfmManagerEndpoint": manager_endpoint,
         }, 'nfvo.manager.handling')
         self.username = response.get('rabbitUsername')
         self.password = response.get('rabbitPassword')
-        self.rabbit_private_credentials = pika.PlainCredentials(self.username, self.password)
-        log.debug("Got private temp credentials: usr:%s, pwd:%s" % (self.username, self.password))
+        self.rabbit_private_credentials = pika.PlainCredentials(
+            self.username, self.password)
+        log.debug("Got private temp credentials: usr:%s, pwd:%s" %
+                  (self.username, self.password))
         # self.connection.close()
 
     def get_manager_endpoint(self):
@@ -155,21 +166,22 @@ class VnfmListener(object):
         This method sends a message to the nfvo in order to unregister
         """
         connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=self.rabbit_mgmt_credentials,
-                                          heartbeat_interval=int(self.heartbeat)))
+            pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                      credentials=self.rabbit_mgmt_credentials,
+                                      heartbeat_interval=int(self.heartbeat)))
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
         log.info("Unregistering VNFM of type %s" % self.type)
         manager_endpoint = self.get_manager_endpoint()
         channel.basic_publish(exchange='openbaton-exchange',
                               routing_key='nfvo.manager.handling',
-                              properties=pika.BasicProperties(content_type='text/plain'),
+                              properties=pika.BasicProperties(
+                                  content_type='text/plain'),
                               body=json.dumps({
-                                  'action':              'unregister',
-                                  'type':                self.type,
-                                  'username':            self.username,
-                                  'password':            self.password,
+                                  'action': 'unregister',
+                                  'type': self.type,
+                                  'username': self.username,
+                                  'password': self.password,
                                   'vnfmManagerEndpoint': manager_endpoint
                               }))
 
@@ -241,8 +253,11 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def update_software(self):
-        """This operation allows applying a minor / limited software update(e.g.patch) to a VNF instance."""
+    def update_software(self, script, vnf_record):
+        """This operation allows applying a minor / limited software update(e.g.patch) to a VNF instance.
+        :param script: the script that has to executed for the software update
+        :return: vnf_record: the VNFR that shall be updated
+        """
         pass
 
     @abc.abstractmethod
@@ -269,7 +284,7 @@ class AbstractVnfm(object):
         pass
 
     @abc.abstractmethod
-    def start_vnfr(self, vnf_record, vnfc_instance=None):
+    def start_vnfr(self, vnf_record):
         """
         This operation allows the VNFM to start the VNF record.
 
@@ -295,6 +310,66 @@ class AbstractVnfm(object):
         This operation is called when an error occurs and the VNFM needs to handle the error case in the VNFM.
         :param vnf_record
         :return:
+        """
+        pass
+
+    @abc.abstractmethod
+    def resume(self, vnf_record, vnfc_instance, dependency):
+        """
+        This operation is called when an error was thrown by the VNFR so that the error can befixed and the VNFR goes back to ACTIVE.
+        :param vnf_record: the VNFR to be resumed
+        :param vnfc_instance
+        :param dependency
+        :return: must return the VNFRecord
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_resumed_action(self, vnf_record, vnfc_instance):
+        """
+        This operation is called to identify which action must be resumed.
+        :param vnf_record: the VNFR to be resumed
+        :param vnfc_instance
+        :return: must return the VNFRecord
+        """
+        pass
+
+    @abc.abstractmethod
+    def execute_script(self, vnf_record, script):
+        """
+        This operation is called when a script shall be executed for a given VNFR.
+        :param vnf_record: the VNFR where to execute the scripts
+        :param script: the script to execute
+        :return: must return the VNFRecord
+        """
+        pass
+
+    @abc.abstractmethod
+    def start_vnfci(self, vnf_record, vnfc_instance):
+        """
+        This operation is called when a given VNFC Instance shall be started.
+        :param vnf_record: the VNFR containing the VNFC Instance
+        :param vnfc_instance: the VNFC Instance to start
+        :return: must return the VNFRecord
+        """
+        pass
+
+    @abc.abstractmethod
+    def stop_vnfci(self, vnf_record, vnfc_instance):
+        """
+        This operation is called when a given VNFC Instance shall be stopped.
+        :param vnf_record: the VNFR containing the VNFC Instance
+        :param vnfc_instance: the VNFC Instance to stop
+        :return: must return the VNFRecord
+        """
+        pass
+
+    @abc.abstractmethod
+    def configure(self, vnf_record):
+        """
+        This operation is called when a given VNFR shall be configured.
+        :param vnf_record: the VNFR to be configured
+        :return: must return the VNFRecord
         """
         pass
 
@@ -332,13 +407,16 @@ class AbstractVnfm(object):
                     else:
                         scripts = vnf_package.get("scriptsLink")
                 virtual_network_function_record = create_vnf_record(vnfd,
-                                                                    vnfdf.get("flavour_key"),
+                                                                    vnfdf.get(
+                                                                        "flavour_key"),
                                                                     vlrs,
                                                                     vim_instances,
                                                                     extension)
-                log.debug("VNFR created is: %s" % virtual_network_function_record)
+                log.debug("VNFR created is: %s" %
+                          virtual_network_function_record)
 
-                grant_operation = self._grant_operation(virtual_network_function_record)
+                grant_operation = self._grant_operation(
+                    virtual_network_function_record)
                 virtual_network_function_record = grant_operation["virtualNetworkFunctionRecord"]
                 vim_instances = grant_operation["vduVim"]
 
@@ -346,58 +424,77 @@ class AbstractVnfm(object):
                     log.debug("Calling allocate resources")
                     try:
                         virtual_network_function_record = self._allocate_resources(
-                                virtual_network_function_record,
-                                vim_instances,
-                                keys,
-                                **extension).get("vnfr")
+                            virtual_network_function_record,
+                            vim_instances,
+                            keys,
+                            **extension).get("vnfr")
                         if not virtual_network_function_record:
                             return
                     except Exception as e:
-                        if not isinstance(e, PyVnfmSdkException) or (isinstance(e, PyVnfmSdkException) and not e.vnfr):
+                        if not isinstance(e, PyVnfmSdkException) or (
+                                isinstance(e, PyVnfmSdkException) and not e.vnfr):
                             traceback.print_exc()
-                        log.error("Exception while allocating resources: %s" % e)
+                        log.error(
+                            "Exception while allocating resources: %s" % e)
                         raise e
 
                 virtual_network_function_record = self.instantiate(
-                        vnf_record=virtual_network_function_record,
-                        scripts=scripts,
-                        vim_instances=vim_instances)
+                    vnf_record=virtual_network_function_record,
+                    scripts=scripts,
+                    vim_instances=vim_instances)
 
-                nfv_message = get_nfv_message(action, virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
 
             if action == "MODIFY":
                 virtual_network_function_record = self.modify(
-                        vnf_record=virtual_network_function_record,
-                        dependency=msg.get("vnfrd"))
+                    vnf_record=virtual_network_function_record,
+                    dependency=msg.get("vnfrd"))
 
-                nfv_message = get_nfv_message(action, virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
 
             if action == "START":
                 vnfc_instance = msg.get('vnfcInstance')
-                virtual_network_function_record = self.start_vnfr(vnf_record=virtual_network_function_record,
-                                                                  vnfc_instance=vnfc_instance)
+                if vnfc_instance:
+                    virtual_network_function_record = self.start_vnfci(vnf_record=virtual_network_function_record,
+                                                                       vnfc_instance=vnfc_instance)
+                else:
+                    virtual_network_function_record = self.start_vnfr(
+                        vnf_record=virtual_network_function_record)
 
-                nfv_message = get_nfv_message(action, virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
 
             if action == "STOP":
                 vnfc_instance = msg.get('vnfcInstance')
-                virtual_network_function_record = self.stop_vnfr(vnf_record=virtual_network_function_record,
-                                                                 vnfc_instance=vnfc_instance)
-                nfv_message = get_nfv_message(action, virtual_network_function_record, vnfc_instance)
+                if vnfc_instance:
+                    virtual_network_function_record = self.stop_vnfci(vnf_record=virtual_network_function_record,
+                                                                      vnfc_instance=vnfc_instance)
+                else:
+                    virtual_network_function_record = self.stop_vnfr(
+                        vnf_record=virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record, vnfc_instance)
 
             if action == "ERROR":
-                virtual_network_function_record = self.handle_error(vnf_record=virtual_network_function_record)
+                virtual_network_function_record = self.handle_error(
+                    vnf_record=virtual_network_function_record)
                 nfv_message = None
 
             if action == "RELEASE_RESOURCES":
-                virtual_network_function_record = self.terminate(vnf_record=virtual_network_function_record)
-                nfv_message = get_nfv_message(action, virtual_network_function_record)
+                virtual_network_function_record = self.terminate(
+                    vnf_record=virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
 
             if action == "HEAL":
                 virtual_network_function_record = self.heal(vnf_record=virtual_network_function_record,
-                                                            vnfc_instance=msg.get('vnfcInstance'),
+                                                            vnfc_instance=msg.get(
+                                                                'vnfcInstance'),
                                                             cause=msg.get('cause'))
-                nfv_message = get_nfv_message(action, virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
 
             if action == 'SCALE_OUT':
                 component = msg.get('component')
@@ -411,29 +508,57 @@ class AbstractVnfm(object):
                     scaling_message = get_nfv_message('SCALING',
                                                       virtual_network_function_record,
                                                       user_data=self.get_user_data())
-                    log.debug('The NFVO allocates resources. Send SCALING message.')
-                    result = exec_rpc_call(self.connection, json.dumps(scaling_message), "vnfm.nfvo.actions.reply")
-                    log.debug('Received {} message.'.format(result.get('action')))
+                    log.debug(
+                        'The NFVO allocates resources. Send SCALING message.')
+                    result = exec_rpc_call(self.connection, json.dumps(
+                        scaling_message), "vnfm.nfvo.actions.reply")
+                    log.debug('Received {} message.'.format(
+                        result.get('action')))
                     virtual_network_function_record = result.get('vnfr')
-                    new_vnfc_instance = get_new_vnfc_instance(virtual_network_function_record, component)
+                    new_vnfc_instance = get_new_vnfc_instance(
+                        virtual_network_function_record, component)
                     if mode is not None and mode.lower() == "standby":
                         new_vnfc_instance['state'] = "STANDBY"
 
                 virtual_network_function_record = self.scale_out(
-                        virtual_network_function_record,
-                        new_vnfc_instance or component,
-                        scripts,
-                        dependency)
+                    virtual_network_function_record,
+                    new_vnfc_instance or component,
+                    scripts,
+                    dependency)
 
                 if new_vnfc_instance is None:
-                    new_vnfc_instance = get_new_vnfc_instance(virtual_network_function_record, component)
+                    new_vnfc_instance = get_new_vnfc_instance(
+                        virtual_network_function_record, component)
 
-                nfv_message = get_nfv_message('SCALED', virtual_network_function_record, new_vnfc_instance)
+                nfv_message = get_nfv_message(
+                    'SCALED', virtual_network_function_record, new_vnfc_instance)
 
             if action == 'SCALE_IN':
                 virtual_network_function_record = self.scale_in(virtual_network_function_record,
                                                                 msg.get('vnfcInstance'))
                 nfv_message = None
+
+            if action == 'CONFIGURE':
+                virtual_network_function_record = self.configure(
+                    virtual_network_function_record)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
+
+            if action == 'RESUME':
+                vnfc_instance = msg.get('vnfcInstance')
+                dependency = msg.get('dependency')
+                resumed_action = self.get_resumed_action()
+                if not resumed_action:
+                    resumed_action = 'ERROR'
+                virtual_network_function_record = self.resume(
+                    virtual_network_function_record, vnfc_instance, dependency)
+                nfv_message = get_nfv_message(
+                    action, virtual_network_function_record)
+
+            if action == 'EXECUTE':
+                script = msg.get('script')
+                virtual_network_function_record = self.execute_script(
+                    virtual_network_function_record, script)
 
             if action not in __KNOWN_ACTIONS__:
                 raise PyVnfmSdkException("Unknown action!")
@@ -442,7 +567,8 @@ class AbstractVnfm(object):
             traceback.print_exc()
             if isinstance(exception, PyVnfmSdkException) and exception.vnfr:
                 virtual_network_function_record = exception.vnfr
-            nfv_message = get_nfv_message('ERROR', virtual_network_function_record, exception=exception)
+            nfv_message = get_nfv_message(
+                'ERROR', virtual_network_function_record, exception=exception)
         self._handle_answer(nfv_message, reply_to)
 
     def _handle_answer(self, nfv_message, reply_to=None):
@@ -452,27 +578,32 @@ class AbstractVnfm(object):
             if reply_to:
                 ch.basic_publish(exchange='',
                                  routing_key=reply_to,
-                                 properties=pika.BasicProperties(content_type='text/plain'),
+                                 properties=pika.BasicProperties(
+                                     content_type='text/plain'),
                                  body=json.dumps(nfv_message))
             elif nfv_message.get("action") == "INSTANTIATE":
                 ch.basic_publish(exchange='',
                                  routing_key="vnfm.nfvo.actions.reply",
-                                 properties=pika.BasicProperties(content_type='text/plain'),
+                                 properties=pika.BasicProperties(
+                                     content_type='text/plain'),
                                  body=json.dumps(nfv_message))
             else:
                 ch.basic_publish(exchange='',
                                  routing_key="vnfm.nfvo.actions",
-                                 properties=pika.BasicProperties(content_type='text/plain'),
+                                 properties=pika.BasicProperties(
+                                     content_type='text/plain'),
                                  body=json.dumps(nfv_message))
             log.info("Answer sent")
 
     def _grant_operation(self, vnf_record):
         nfv_message = get_nfv_message("GRANT_OPERATION", vnf_record)
         log.info("Executing GRANT_OPERATION")
-        result = exec_rpc_call(self.connection, json.dumps(nfv_message), "vnfm.nfvo.actions.reply")
+        result = exec_rpc_call(self.connection, json.dumps(
+            nfv_message), "vnfm.nfvo.actions.reply")
         log.debug("grant_allowed: %s" % result.get("grantAllowed"))
         log.debug("vdu_vims: %s" % result.get("vduVim").keys())
-        log.debug("vnf_record: %s" % result.get("virtualNetworkFunctionRecord").get("name"))
+        log.debug("vnf_record: %s" % result.get(
+            "virtualNetworkFunctionRecord").get("name"))
 
         return result
 
@@ -481,20 +612,24 @@ class AbstractVnfm(object):
         if user_data is not None:
             monitoring_ip = kwargs.get("monitoringIp")
             log.debug("monitoring ip is: %s" % monitoring_ip)
-            user_data = user_data.replace("export MONITORING_IP=", "export MONITORING_IP=%s" % monitoring_ip)
+            user_data = user_data.replace(
+                "export MONITORING_IP=", "export MONITORING_IP=%s" % monitoring_ip)
             log.debug("Sending userdata: \n%s" % user_data)
 
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
         log.debug("Executing ALLOCATE_RESOURCES")
-        result = exec_rpc_call(self.connection, json.dumps(nfv_message), "vnfm.nfvo.actions.reply")
+        result = exec_rpc_call(self.connection, json.dumps(
+            nfv_message), "vnfm.nfvo.actions.reply")
         if not result:
-            raise PyVnfmSdkException("Got empty message from nfvo while allocating resource!")
+            raise PyVnfmSdkException(
+                "Got empty message from nfvo while allocating resource!")
         elif result.get('action') == 'ERROR':
             raise PyVnfmSdkException("Not able to allocate Resources because: %s" % result.get('message'),
                                      vnfr=result.get('vnfr'))
         else:
-            log.debug("vnf_record: %s has allocated resources" % result.get("vnfr").get("name"))
+            log.debug("vnf_record: %s has allocated resources" %
+                      result.get("vnfr").get("name"))
             return result
 
     def get_user_data(self):
@@ -515,9 +650,9 @@ class AbstractVnfm(object):
     def _setup(self, creds, properties, heartbeat=60):
         self.properties = properties
         self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.properties.get("broker_ip"),
-                                          credentials=creds,
-                                          heartbeat_interval=heartbeat))
+            pika.ConnectionParameters(host=self.properties.get("broker_ip"),
+                                      credentials=creds,
+                                      heartbeat_interval=heartbeat))
 
 
 def start_vnfm_instances(vnfm_klass, config_file_path, instances=1, **kwargs):

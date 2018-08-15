@@ -15,7 +15,7 @@ def read(fname):
 
 setup(
     name="python-vnfm-sdk",
-        version='5.2.1',
+    version='6.0.0rc1',
     author="Open Baton",
     author_email="dev@openbaton.org",
     description="The Python version of the Open Baton vnfm-sdk",
@@ -26,7 +26,7 @@ setup(
         install_requires=[
             'pika',
             'futures'  # for py2
-        ],
+    ],
     long_description=read('README.rst'),
     classifiers=[
         "Development Status :: 4 - Beta",
