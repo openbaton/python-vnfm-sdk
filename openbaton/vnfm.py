@@ -52,7 +52,8 @@ __KNOWN_ACTIONS__ = [
     'HEAL',
     'ERROR',
     'RESUME',
-    'EXECUTE'
+    'EXECUTE',
+    'UPDATE'
 ]
 
 
@@ -406,42 +407,43 @@ class AbstractVnfm(object):
                         scripts = vnf_package.get("scripts")
                     else:
                         scripts = vnf_package.get("scriptsLink")
-                virtual_network_function_record = create_vnf_record(vnfd,
-                                                                    vnfdf.get(
-                                                                        "flavour_key"),
-                                                                    vlrs,
-                                                                    vim_instances,
-                                                                    extension)
-                log.debug("VNFR created is: %s" %
-                          virtual_network_function_record)
+                if msg.get("vnfr") is None:
+                    virtual_network_function_record = create_vnf_record(vnfd,
+                                                                        vnfdf.get(
+                                                                            "flavour_key"),
+                                                                        vlrs,
+                                                                        vim_instances,
+                                                                        extension)
+                    log.debug("VNFR created is: %s" %
+                              virtual_network_function_record)
 
-                grant_operation = self._grant_operation(
-                    virtual_network_function_record)
-                virtual_network_function_record = grant_operation["virtualNetworkFunctionRecord"]
-                vim_instances = grant_operation["vduVim"]
+                    grant_operation = self._grant_operation(
+                        virtual_network_function_record)
+                    virtual_network_function_record = grant_operation["virtualNetworkFunctionRecord"]
+                    vim_instances = grant_operation["vduVim"]
 
-                if str2bool(self.properties.get("allocate", 'True')):
-                    log.debug("Calling allocate resources")
-                    try:
-                        virtual_network_function_record = self._allocate_resources(
-                            virtual_network_function_record,
-                            vim_instances,
-                            keys,
-                            **extension).get("vnfr")
-                        if not virtual_network_function_record:
-                            return
-                    except Exception as e:
-                        if not isinstance(e, PyVnfmSdkException) or (
-                                isinstance(e, PyVnfmSdkException) and not e.vnfr):
-                            traceback.print_exc()
-                        log.error(
-                            "Exception while allocating resources: %s" % e)
-                        raise e
+                    if str2bool(self.properties.get("allocate", 'True')):
+                        log.debug("Calling allocate resources")
+                        try:
+                            virtual_network_function_record = self._allocate_resources(
+                                virtual_network_function_record,
+                                vim_instances,
+                                keys,
+                                **extension).get("vnfr")
+                            if not virtual_network_function_record:
+                                return
+                        except Exception as e:
+                            if not isinstance(e, PyVnfmSdkException) or (
+                                    isinstance(e, PyVnfmSdkException) and not e.vnfr):
+                                traceback.print_exc()
+                            log.error(
+                                "Exception while allocating resources: %s" % e)
+                            raise e
 
-                virtual_network_function_record = self.instantiate(
-                    vnf_record=virtual_network_function_record,
-                    scripts=scripts,
-                    vim_instances=vim_instances)
+                    virtual_network_function_record = self.instantiate(
+                        vnf_record=virtual_network_function_record,
+                        scripts=scripts,
+                        vim_instances=vim_instances)
 
                 nfv_message = get_nfv_message(
                     action, virtual_network_function_record)
