@@ -549,7 +549,7 @@ class AbstractVnfm(object):
             if action == 'RESUME':
                 vnfc_instance = msg.get('vnfcInstance')
                 dependency = msg.get('dependency')
-                resumed_action = self.get_resumed_action()
+                resumed_action = self.get_resumed_action(virtual_network_function_record, vnfc_instance)
                 if not resumed_action:
                     resumed_action = 'ERROR'
                 virtual_network_function_record = self.resume(
@@ -617,7 +617,7 @@ class AbstractVnfm(object):
             user_data = user_data.replace(
                 "export MONITORING_IP=", "export MONITORING_IP=%s" % monitoring_ip)
             log.debug("Sending userdata: \n%s" % user_data)
-
+        # return {"action": action, "virtualNetworkFunctionRecord": vnfr}
         nfv_message = get_nfv_message(action="ALLOCATE_RESOURCES", vnfr=vnf_record, vim_instances=vim_instances,
                                       user_data=user_data, keys=keys)
         log.debug("Executing ALLOCATE_RESOURCES")
