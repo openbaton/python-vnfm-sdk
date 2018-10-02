@@ -505,11 +505,12 @@ class AbstractVnfm(object):
                 dependency = msg.get('dependency')
                 mode = msg.get('mode')
                 extension = msg.get('extension')
+                vimInstance = msg.get('vimInstance')
                 new_vnfc_instance = None
                 if str2bool(self.properties.get("allocate", 'True')):
                     scaling_message = get_nfv_message('SCALING',
                                                       virtual_network_function_record,
-                                                      user_data=self.get_user_data())
+                                                      user_data=self.get_user_data(),vimInstance=vimInstance)
                     log.debug(
                         'The NFVO allocates resources. Send SCALING message.')
                     result = exec_rpc_call(self.connection, json.dumps(

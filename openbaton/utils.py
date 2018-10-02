@@ -57,7 +57,7 @@ def check_endpoint_type(endpoint_type):
 
 
 def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exception=None, vim_instances=None,
-                    keys=None, user_data=None):
+                    keys=None, user_data=None, vimInstance=None):
     if action == "INSTANTIATE":
         return {
             "action": action,
@@ -103,13 +103,15 @@ def get_nfv_message(action, vnfr, vnfc_instance=None, vnfr_dependency=None, exce
             return {
                 "action": action,
                 "virtualNetworkFunctionRecord": vnfr,
-                "userData": user_data
+                "userData": user_data,
+                "vimInstance":vimInstance
             }
         else:
             return {
                 "action": action,
                 "virtualNetworkFunctionRecord": vnfr,
-                "userData": ""
+                "userData": "",
+                "vimInstance": vimInstance
             }
     if action == "RELEASE_RESOURCES":
         return {
